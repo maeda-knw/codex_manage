@@ -29,6 +29,12 @@ declare module 'vscode' {
 
   export namespace workspace {
     export const workspaceFolders: readonly WorkspaceFolder[] | undefined;
+    export function onDidChangeWorkspaceFolders(listener: (event: WorkspaceFoldersChangeEvent) => unknown): Disposable;
+  }
+
+  export interface WorkspaceFoldersChangeEvent {
+    readonly added: readonly WorkspaceFolder[];
+    readonly removed: readonly WorkspaceFolder[];
   }
 
   export interface WorkspaceFolder {
