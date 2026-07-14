@@ -1,0 +1,122 @@
+{
+  "name": "codex-thread-manager",
+  "displayName": "Codex Thread Manager",
+  "description": "Manage Codex threads for the current VS Code workspace.",
+  "version": "0.0.1",
+  "publisher": "codex-thread-manager",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:codexThreadManager.threads"
+  ],
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codexThreadManager",
+          "title": "Codex",
+          "icon": "resources/codex.svg"
+        }
+      ]
+    },
+    "views": {
+      "codexThreadManager": [
+        {
+          "id": "codexThreadManager.threads",
+          "name": "Threads",
+          "when": "workspaceFolderCount > 0"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "codexThreadManager.refresh",
+        "title": "Refresh Threads",
+        "category": "Codex Thread Manager",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "codexThreadManager.pin",
+        "title": "Pin Thread",
+        "category": "Codex Thread Manager",
+        "icon": "$(pinned)"
+      },
+      {
+        "command": "codexThreadManager.unpin",
+        "title": "Unpin Thread",
+        "category": "Codex Thread Manager",
+        "icon": "$(pinned-dirty)"
+      },
+      {
+        "command": "codexThreadManager.rename",
+        "title": "Rename Thread",
+        "category": "Codex Thread Manager",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "codexThreadManager.archive",
+        "title": "Archive Thread",
+        "category": "Codex Thread Manager",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "codexThreadManager.unarchive",
+        "title": "Restore Thread",
+        "category": "Codex Thread Manager",
+        "icon": "$(history)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "codexThreadManager.refresh",
+          "when": "view == codexThreadManager.threads",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Codex Thread Manager",
+      "properties": {
+        "codexThreadManager.codexPath": {
+          "type": "string",
+          "default": "codex",
+          "description": "Path to the Codex CLI executable used to start the app server."
+        },
+        "codexThreadManager.pageSize": {
+          "type": "number",
+          "default": 50,
+          "minimum": 1,
+          "maximum": 200,
+          "description": "Number of threads to request per page."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.12",
+    "@types/vscode": "^1.92.0",
+    "@typescript-eslint/eslint-plugin": "^7.16.1",
+    "@typescript-eslint/parser": "^7.16.1",
+    "@vscode/vsce": "^2.32.0",
+    "esbuild": "^0.23.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.5.4"
+  }
+}
