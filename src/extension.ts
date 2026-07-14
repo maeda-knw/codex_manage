@@ -8,6 +8,9 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     output,
     vscode.window.registerTreeDataProvider('codexThreadManager.threads', provider),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      provider.refresh();
+    }),
     vscode.commands.registerCommand('codexThreadManager.refresh', () => {
       provider.refresh();
     }),
