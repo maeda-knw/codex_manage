@@ -32,8 +32,7 @@
       "codexThreadManager": [
         {
           "id": "codexThreadManager.threads",
-          "name": "Threads",
-          "when": "workspaceFolderCount > 0"
+          "name": "Threads"
         }
       ]
     },
@@ -106,8 +105,9 @@
     "build": "tsc",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit",
-    "package": "vsce package --no-dependencies"
+    "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
+    "package": "npm run build && vsce package --no-dependencies",
+    "vscode:prepublish": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^20.14.12",

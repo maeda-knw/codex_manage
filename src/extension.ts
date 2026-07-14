@@ -28,6 +28,6 @@ export function deactivate(): void {
   // No long-lived resources are created in the Phase 1 scaffold.
 }
 
-function showNotImplemented(action: string): vscode.Thenable<void> {
+function showNotImplemented(action: string): Thenable<void> {
   return vscode.window.showInformationMessage(`${action} will be implemented in a later MVP phase.`).then(() => undefined);
 }
