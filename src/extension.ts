@@ -142,9 +142,11 @@ function connectionErrorMessage(error: unknown): string {
       case 'request-timeout':
         return 'Codex App Server did not respond before the request timed out.';
       case 'request-failed':
-        return 'Codex App Server rejected the request. The installed CLI may be incompatible.';
+        return 'Codex App Server rejected the request. See the output log for details.';
       case 'protocol-error':
         return 'Codex App Server returned an incompatible response.';
+      case 'incompatible-cli':
+        return `${error.message} Update Codex CLI or choose another CLI in the codexPath setting, then retry.`;
       case 'connection-closed':
       case 'process-start-failed':
       case 'disposed':
@@ -159,7 +161,8 @@ async function showConnectionError(
   error: unknown,
   retry: (notifyOnError: boolean) => Promise<void>
 ): Promise<void> {
-  const openSettings = error instanceof AppServerError && error.code === 'cli-not-found';
+  const openSettings = error instanceof AppServerError &&
+    (error.code === 'cli-not-found' || error.code === 'incompatible-cli');
   const actions = openSettings ? ['Open Settings', 'Retry'] : ['Retry'];
   const selection = await vscode.window.showErrorMessage(
     `Codex Thread Manager: ${connectionErrorMessage(error)}`,

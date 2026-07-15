@@ -93,7 +93,7 @@
         "codexThreadManager.codexPath": {
           "type": "string",
           "default": "codex",
-          "description": "Path to the Codex CLI executable used to start the app server."
+          "description": "Codex CLI executable or official npm shim. The default automatically resolves native PATH installs before npm shims."
         },
         "codexThreadManager.pageSize": {
           "type": "number",
@@ -110,11 +110,13 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
+    "test": "node scripts/run-tests.mjs",
     "generate:protocol": "node scripts/generate-protocol.mjs",
     "package": "npm run build && vsce package --no-dependencies",
     "vscode:prepublish": "npm run build"
   },
   "devDependencies": {
+    "@openai/codex": "0.144.2",
     "@types/node": "^20.14.12",
     "@types/vscode": "^1.92.0",
     "@typescript-eslint/eslint-plugin": "^7.16.1",
