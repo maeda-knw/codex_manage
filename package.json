@@ -102,10 +102,11 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "npm run typecheck && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
+    "generate:protocol": "node scripts/generate-protocol.mjs",
     "package": "npm run build && vsce package --no-dependencies",
     "vscode:prepublish": "npm run build"
   },
