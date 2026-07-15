@@ -5,6 +5,10 @@
   "version": "0.0.1",
   "publisher": "codex-thread-manager",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kannou/codex_manage.git"
+  },
   "engines": {
     "vscode": "^1.92.0"
   },
