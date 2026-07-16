@@ -18,6 +18,8 @@ import type { RequestId } from './protocol/generated/RequestId';
 import type { ThreadArchiveParams } from './protocol/generated/v2/ThreadArchiveParams';
 import type { ThreadListParams } from './protocol/generated/v2/ThreadListParams';
 import type { ThreadListResponse } from './protocol/generated/v2/ThreadListResponse';
+import type { ThreadReadParams } from './protocol/generated/v2/ThreadReadParams';
+import type { ThreadReadResponse } from './protocol/generated/v2/ThreadReadResponse';
 import type { ThreadSetNameParams } from './protocol/generated/v2/ThreadSetNameParams';
 import type { ThreadUnarchiveParams } from './protocol/generated/v2/ThreadUnarchiveParams';
 import { GENERATED_CODEX_CLI_VERSION } from './protocol/generated/version';
@@ -25,7 +27,8 @@ import {
   isJsonObject,
   isRequestId,
   parseInitializeResponse,
-  parseThreadListResponse
+  parseThreadListResponse,
+  parseThreadReadResponse
 } from './protocol/guards';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
@@ -164,6 +167,16 @@ export class AppServerClient {
   public async renameThread(params: ThreadSetNameParams): Promise<void> {
     await this.connect();
     await this.sendRequest((id) => ({ method: 'thread/name/set', id, params }));
+  }
+
+  public async readThread(params: ThreadReadParams): Promise<ThreadReadResponse> {
+    await this.connect();
+    try {
+      const result = await this.sendRequest((id) => ({ method: 'thread/read', id, params }));
+      return parseThreadReadResponse(result, params.threadId);
+    } catch (error) {
+      throw this.classifyRequiredProtocolError(error, 'thread/read failed.');
+    }
   }
 
   public async archiveThread(params: ThreadArchiveParams): Promise<void> {

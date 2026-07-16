@@ -45,6 +45,11 @@ export class ThreadTreeItem extends vscode.TreeItem {
       : thread.pinned
         ? 'codexThreadManager.thread.active.pinned'
         : 'codexThreadManager.thread.active.unpinned';
+    this.command = {
+      command: 'codexThreadManager.openThread',
+      title: 'Open thread conversation',
+      arguments: [thread.id]
+    };
     this.accessibilityInformation = { label: `${thread.title}, ${thread.description}` };
   }
 }

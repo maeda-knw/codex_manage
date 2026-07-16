@@ -37,6 +37,13 @@ The GitHub Actions workflow runs quality, packaging, and Extension Host checks o
 - Use Undo immediately after archive.
 - Restore a thread from Archive.
 - Trigger or observe a running/error status change and confirm the icon and label update.
+- Select a thread and confirm its conversation tab shows the matching thread title, stored user/Codex messages, turn state, and basic work cards.
+- Select the same thread again and confirm VS Code reveals the existing tab instead of opening a duplicate.
+- Open two different threads and confirm their histories do not mix.
+- Use **Reload history** and confirm the tab refreshes without creating a new turn or changing Codex data.
+- Run **Developer: Reload Window** with a conversation tab open and confirm the tab restores the same thread history.
+- Confirm message text containing HTML-like text is displayed literally and does not create executable markup.
+- Confirm partial stored history shows a summary notice rather than pretending all work items are present.
 - Configure a missing CLI path and confirm Settings/Retry guidance appears.
 - Confirm the Output Channel reports resolved source/path and both CLI versions.
 - Close the window and confirm no App Server child process remains.
@@ -44,7 +51,7 @@ The GitHub Actions workflow runs quality, packaging, and Extension Host checks o
 
 ## Real CLI smoke test
 
-The opt-in smoke test is read-only and only calls `initialize` and `thread/list`:
+The opt-in smoke test is read-only. It calls `initialize`, `thread/list`, and, when a matching thread exists, `thread/read(includeTurns: true)`. It asserts only the thread ID and turn-array shape and does not print conversation content:
 
 ```powershell
 $env:CODEX_SMOKE_PATH = 'C:\path\to\codex.cmd'

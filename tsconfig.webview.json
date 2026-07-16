@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowArbitraryExtensions": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "rootDir": "src"
+  },
+  "include": [
+    "src/webview/**/*.ts",
+    "src/webview/**/*.d.ts"
+  ],
+  "exclude": []
+}

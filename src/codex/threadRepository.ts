@@ -66,6 +66,11 @@ export class ThreadRepository {
     return this.pendingThreadIds.has(threadId);
   }
 
+  public findThread(threadId: string): ThreadDisplayModel | undefined {
+    return this.activeThreads.find((thread) => thread.id === threadId) ??
+      this.archivedThreads.find((thread) => thread.id === threadId);
+  }
+
   public reset(): void {
     this.activeThreads = [];
     this.archivedThreads = [];

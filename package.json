@@ -16,7 +16,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:codexThreadManager.threads"
+    "onView:codexThreadManager.threads",
+    "onWebviewPanel:codexThreadManager.conversation"
   ],
   "main": "./dist/extension.js",
   "extensionKind": [
@@ -52,6 +53,12 @@
         "title": "Open Settings",
         "category": "Codex Thread Manager",
         "icon": "$(gear)"
+      },
+      {
+        "command": "codexThreadManager.openThread",
+        "title": "Open Thread Conversation",
+        "category": "Codex Thread Manager",
+        "icon": "$(comment-discussion)"
       },
       {
         "command": "codexThreadManager.pin",
@@ -144,14 +151,15 @@
     }
   },
   "scripts": {
-    "build": "npm run typecheck && node esbuild.mjs",
+    "build": "npm run typecheck && npm run typecheck:webview && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
+    "typecheck:webview": "tsc --noEmit -p tsconfig.webview.json",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
     "test": "node scripts/run-tests.mjs",
     "test:vscode": "npm run build && node scripts/run-vscode-tests.mjs",
-    "verify": "npm run test && npm run typecheck && npm run typecheck:test && npm run lint && npm run build",
+    "verify": "npm run test && npm run typecheck && npm run typecheck:webview && npm run typecheck:test && npm run lint && npm run build",
     "generate:protocol": "node scripts/generate-protocol.mjs",
     "package": "npm run build && vsce package --no-dependencies",
     "vscode:prepublish": "npm run build"

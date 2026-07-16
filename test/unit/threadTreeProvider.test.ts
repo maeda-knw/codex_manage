@@ -77,4 +77,9 @@ test('renders pinned, recent, archive, and load-more rows with correct contexts'
 test('exposes accessible thread labels', () => {
   const item = new ThreadTreeItem(displayThread());
   assert.equal(item.accessibilityInformation?.label, 'Thread A, now • Idle');
+  assert.deepEqual(item.command, {
+    command: 'codexThreadManager.openThread',
+    title: 'Open thread conversation',
+    arguments: ['thread-a']
+  });
 });

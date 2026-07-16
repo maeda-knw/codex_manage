@@ -9,10 +9,15 @@ const entryPoints = [
   'test/unit/codexExecutableResolver.test.mjs',
   'test/unit/jsonlTransport.test.ts',
   'test/unit/pinStore.test.ts',
+  'test/unit/conversationPanelManager.test.ts',
+  'test/unit/conversationProtocol.test.ts',
+  'test/unit/conversationViewModel.test.ts',
+  'test/unit/conversationWebview.test.ts',
   'test/unit/protocolGuards.test.ts',
   'test/unit/threadRepository.test.ts',
   'test/unit/threadTreeProvider.test.ts',
   'test/integration/appServerCompatibility.test.ts',
+  'test/integration/appServerConversation.test.ts',
   'test/integration/appServerOperations.test.ts',
   'test/integration/realCli.test.ts'
 ];

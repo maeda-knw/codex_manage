@@ -17,6 +17,7 @@ export async function run(): Promise<void> {
   for (const command of [
     'codexThreadManager.refresh',
     'codexThreadManager.openSettings',
+    'codexThreadManager.openThread',
     'codexThreadManager.loadMoreActive',
     'codexThreadManager.loadMoreArchive',
     'codexThreadManager.pin',
@@ -29,6 +30,7 @@ export async function run(): Promise<void> {
   }
 
   const manifest = extension.packageJSON as {
+    activationEvents?: string[];
     contributes?: {
       commands?: Array<{ command?: string; icon?: string; title?: string }>;
       views?: Record<string, Array<{ id?: string }>>;
@@ -41,6 +43,12 @@ export async function run(): Promise<void> {
   };
   assert.deepEqual(manifest.extensionKind, ['workspace']);
   assert.equal(
+    manifest.activationEvents?.includes(
+      'onWebviewPanel:codexThreadManager.conversation'
+    ),
+    true
+  );
+  assert.equal(
     manifest.contributes?.views?.codexThreadManager?.some(
       (view) => view.id === 'codexThreadManager.threads'
     ),
@@ -52,6 +60,13 @@ export async function run(): Promise<void> {
       command.command === 'codexThreadManager.openSettings' &&
       command.title === 'Open Settings' &&
       command.icon === '$(gear)'
+    ),
+    true
+  );
+  assert.equal(
+    manifest.contributes?.commands?.some((command) =>
+      command.command === 'codexThreadManager.openThread' &&
+      command.title === 'Open Thread Conversation'
     ),
     true
   );
