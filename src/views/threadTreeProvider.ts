@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
+import type { ThreadDisplayModel, ThreadRepositorySnapshot } from '../codex/threadRepository';
 
 type RootItemKind = 'pinned' | 'recent' | 'archive';
 
 export type ConnectionStatus =
   | { readonly kind: 'idle' }
   | { readonly kind: 'connecting' }
-  | { readonly kind: 'ready'; readonly pageCount: number; readonly hasMore: boolean }
+  | { readonly kind: 'ready' }
   | { readonly kind: 'error'; readonly message: string };
 
 class RootTreeItem extends vscode.TreeItem {
@@ -32,11 +33,42 @@ class MessageTreeItem extends vscode.TreeItem {
   }
 }
 
-type ThreadTreeElement = RootTreeItem | MessageTreeItem;
+class ThreadTreeItem extends vscode.TreeItem {
+  public constructor(public readonly thread: ThreadDisplayModel) {
+    super(thread.title, vscode.TreeItemCollapsibleState.None);
+    this.id = thread.id;
+    this.description = thread.description;
+    this.tooltip = thread.tooltip;
+    this.iconPath = new vscode.ThemeIcon(thread.iconId);
+    this.contextValue = thread.archived ? 'codexThreadManager.thread.archived' : 'codexThreadManager.thread.active';
+    this.accessibilityInformation = { label: `${thread.title}, ${thread.description}` };
+  }
+}
+
+class LoadMoreTreeItem extends vscode.TreeItem {
+  public constructor(public readonly group: 'active' | 'archive') {
+    super('Load more…', vscode.TreeItemCollapsibleState.None);
+    this.description = 'Fetch the next page';
+    this.iconPath = new vscode.ThemeIcon('more');
+    this.contextValue = `codexThreadManager.loadMore.${group}`;
+    this.command = {
+      command: group === 'active' ? 'codexThreadManager.loadMoreActive' : 'codexThreadManager.loadMoreArchive',
+      title: 'Load more threads'
+    };
+  }
+}
+
+type ThreadTreeElement = RootTreeItem | MessageTreeItem | ThreadTreeItem | LoadMoreTreeItem;
+
+const EMPTY_SNAPSHOT: ThreadRepositorySnapshot = {
+  active: { threads: [], nextCursor: null, loaded: false },
+  archive: { threads: [], nextCursor: null, loaded: false }
+};
 
 export class ThreadTreeProvider implements vscode.TreeDataProvider<ThreadTreeElement> {
   private readonly didChangeTreeDataEmitter = new vscode.EventEmitter<ThreadTreeElement | undefined | void>();
   private connectionStatus: ConnectionStatus = { kind: 'idle' };
+  private snapshot: ThreadRepositorySnapshot = EMPTY_SNAPSHOT;
 
   public readonly onDidChangeTreeData = this.didChangeTreeDataEmitter.event;
 
@@ -49,12 +81,17 @@ export class ThreadTreeProvider implements vscode.TreeDataProvider<ThreadTreeEle
     this.refresh();
   }
 
+  public setSnapshot(snapshot: ThreadRepositorySnapshot): void {
+    this.snapshot = snapshot;
+    this.refresh();
+  }
+
   public getTreeItem(element: ThreadTreeElement): vscode.TreeItem {
     return element;
   }
 
   public getChildren(element?: ThreadTreeElement): vscode.ProviderResult<ThreadTreeElement[]> {
-    if (element instanceof MessageTreeItem) {
+    if (element instanceof MessageTreeItem || element instanceof ThreadTreeItem || element instanceof LoadMoreTreeItem) {
       return [];
     }
 
@@ -73,27 +110,9 @@ export class ThreadTreeProvider implements vscode.TreeDataProvider<ThreadTreeEle
     }
 
     return [
-      new RootTreeItem(
-        'pinned',
-        'Pinned',
-        'Pinning starts in Phase 4.',
-        'pinned',
-        vscode.TreeItemCollapsibleState.Expanded
-      ),
-      new RootTreeItem(
-        'recent',
-        'Recent Threads',
-        this.getConnectionDescription(),
-        'history',
-        vscode.TreeItemCollapsibleState.Expanded
-      ),
-      new RootTreeItem(
-        'archive',
-        'Archive',
-        'Archive loading starts in Phase 3.',
-        'archive',
-        vscode.TreeItemCollapsibleState.Collapsed
-      )
+      new RootTreeItem('pinned', 'Pinned', 'Pinning starts in Phase 4.', 'pinned', vscode.TreeItemCollapsibleState.Expanded),
+      new RootTreeItem('recent', 'Recent Threads', this.getRecentDescription(), 'history', vscode.TreeItemCollapsibleState.Expanded),
+      new RootTreeItem('archive', 'Archive', this.getArchiveDescription(), 'archive', vscode.TreeItemCollapsibleState.Collapsed)
     ];
   }
 
@@ -102,39 +121,65 @@ export class ThreadTreeProvider implements vscode.TreeDataProvider<ThreadTreeEle
       case 'pinned':
         return [new MessageTreeItem('No pinned threads yet', 'Pinning starts in Phase 4.', 'info')];
       case 'recent':
-        return [this.getConnectionMessage()];
+        return this.getThreadChildren(this.snapshot.active.threads, this.snapshot.active.nextCursor, 'active');
       case 'archive':
-        return [new MessageTreeItem('Archive not loaded yet', 'Archive loading starts in Phase 3.', 'info')];
+        if (!this.snapshot.archive.loaded) {
+          return [new MessageTreeItem('Archive not loaded yet', 'Run Refresh Threads to fetch archived threads.', 'info')];
+        }
+        return this.getThreadChildren(this.snapshot.archive.threads, this.snapshot.archive.nextCursor, 'archive');
     }
   }
 
-  private getConnectionDescription(): string {
+  private getThreadChildren(
+    threads: readonly ThreadDisplayModel[],
+    nextCursor: string | null,
+    group: 'active' | 'archive'
+  ): ThreadTreeElement[] {
+    const children: ThreadTreeElement[] = threads.map((thread) => new ThreadTreeItem(thread));
+    if (nextCursor) {
+      children.push(new LoadMoreTreeItem(group));
+    }
+    if (children.length > 0) {
+      return children;
+    }
+    return [this.getConnectionMessage(group)];
+  }
+
+  private getRecentDescription(): string {
     switch (this.connectionStatus.kind) {
       case 'idle':
         return 'Waiting to connect.';
       case 'connecting':
         return 'Connecting to Codex App Server…';
       case 'ready':
-        return this.connectionStatus.hasMore
-          ? `${this.connectionStatus.pageCount}+ threads found.`
-          : `${this.connectionStatus.pageCount} threads found.`;
+        return this.snapshot.active.nextCursor
+          ? `${this.snapshot.active.threads.length}+ threads found.`
+          : `${this.snapshot.active.threads.length} threads found.`;
       case 'error':
         return 'Connection failed.';
     }
   }
 
-  private getConnectionMessage(): MessageTreeItem {
+  private getArchiveDescription(): string {
+    if (!this.snapshot.archive.loaded) {
+      return 'Not loaded.';
+    }
+    return this.snapshot.archive.nextCursor
+      ? `${this.snapshot.archive.threads.length}+ archived threads.`
+      : `${this.snapshot.archive.threads.length} archived threads.`;
+  }
+
+  private getConnectionMessage(group: 'active' | 'archive'): MessageTreeItem {
+    if (group === 'archive' && this.connectionStatus.kind === 'ready') {
+      return new MessageTreeItem('No archived threads', 'Archived workspace threads will appear here.', 'archive');
+    }
     switch (this.connectionStatus.kind) {
       case 'idle':
         return new MessageTreeItem('Waiting to connect', 'Use Refresh Threads to retry.', 'debug-disconnect');
       case 'connecting':
         return new MessageTreeItem('Connecting to Codex…', 'Initializing the local App Server.', 'sync~spin');
       case 'ready':
-        return new MessageTreeItem(
-          'App Server connected',
-          'Read-only thread rows arrive in Phase 3.',
-          'pass-filled'
-        );
+        return new MessageTreeItem('No workspace threads', 'Start a Codex thread in this workspace to see it here.', 'comment-discussion');
       case 'error':
         return new MessageTreeItem('Unable to connect to Codex', this.connectionStatus.message, 'error');
     }

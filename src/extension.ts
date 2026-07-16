@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { AppServerClient } from './codex/appServerClient';
-import type { ThreadListParams } from './codex/protocol/generated/v2/ThreadListParams';
+import { ThreadRepository } from './codex/threadRepository';
 import { AppServerError } from './common/errors';
 import { ThreadTreeProvider } from './views/threadTreeProvider';
 
@@ -10,6 +10,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Codex Thread Manager');
   const provider = new ThreadTreeProvider();
   let probeGeneration = 0;
+  let repository: ThreadRepository | undefined;
 
   const createClient = (): AppServerClient => {
     const configuredPath = vscode.workspace
@@ -39,6 +40,8 @@ export function activate(context: vscode.ExtensionContext): void {
     probeGeneration += 1;
     activeClient?.dispose();
     activeClient = createClient();
+    repository = new ThreadRepository(activeClient);
+    provider.setSnapshot(repository.snapshot());
     return activeClient;
   };
 
@@ -47,37 +50,32 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!workspaceFolders?.length) {
       probeGeneration += 1;
       provider.setConnectionStatus({ kind: 'idle' });
+      repository?.reset();
+      if (repository) {
+        provider.setSnapshot(repository.snapshot());
+      }
       return;
     }
 
     const client = activeClient ?? replaceClient();
+    const repo = repository ?? new ThreadRepository(client);
+    repository = repo;
     const generation = ++probeGeneration;
     provider.setConnectionStatus({ kind: 'connecting' });
 
-    const configuredPageSize = vscode.workspace
-      .getConfiguration('codexThreadManager')
-      .get<number>('pageSize', 50);
-    const params: ThreadListParams = {
-      limit: Math.min(200, Math.max(1, configuredPageSize)),
-      sortKey: 'recency_at',
-      sortDirection: 'desc',
-      archived: false,
-      cwd: workspaceFolders.map((folder) => folder.uri.fsPath)
-    };
+    const pageSize = getPageSize();
 
     try {
-      const page = await client.listThreads(params);
+      const activePage = await repo.refreshActive(workspaceFolders, pageSize);
+      const archivePage = await repo.refreshArchive(workspaceFolders, pageSize);
       if (generation !== probeGeneration || client !== activeClient) {
         return;
       }
 
-      provider.setConnectionStatus({
-        kind: 'ready',
-        pageCount: page.data.length,
-        hasMore: page.nextCursor !== null
-      });
+      provider.setSnapshot(repo.snapshot());
+      provider.setConnectionStatus({ kind: 'ready' });
       output.appendLine(
-        `[thread/list] Read ${page.data.length} thread metadata record(s); hasMore=${String(page.nextCursor !== null)}.`
+        `[thread/list] Read ${activePage.threads.length} active and ${archivePage.threads.length} archived thread metadata record(s).`
       );
     } catch (error) {
       if (generation !== probeGeneration || client !== activeClient) {
@@ -93,7 +91,37 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   };
 
+
+  const loadMoreThreads = async (group: 'active' | 'archive'): Promise<void> => {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders?.length || !repository) {
+      return;
+    }
+    const generation = ++probeGeneration;
+    try {
+      if (group === 'active') {
+        await repository.loadMoreActive(workspaceFolders, getPageSize());
+      } else {
+        await repository.loadMoreArchive(workspaceFolders, getPageSize());
+      }
+      if (generation !== probeGeneration) {
+        return;
+      }
+      provider.setSnapshot(repository.snapshot());
+      provider.setConnectionStatus({ kind: 'ready' });
+    } catch (error) {
+      if (generation !== probeGeneration) {
+        return;
+      }
+      const message = connectionErrorMessage(error);
+      provider.setConnectionStatus({ kind: 'error', message });
+      output.appendLine(`[thread/list] ${message}`);
+      await showConnectionError(error, refreshThreads);
+    }
+  };
+
   activeClient = createClient();
+  repository = new ThreadRepository(activeClient);
 
   context.subscriptions.push(
     output,
@@ -114,6 +142,8 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
     vscode.commands.registerCommand('codexThreadManager.refresh', () => refreshThreads(true)),
+    vscode.commands.registerCommand('codexThreadManager.loadMoreActive', () => loadMoreThreads('active')),
+    vscode.commands.registerCommand('codexThreadManager.loadMoreArchive', () => loadMoreThreads('archive')),
     vscode.commands.registerCommand('codexThreadManager.pin', () => showNotImplemented('Pin thread')),
     vscode.commands.registerCommand('codexThreadManager.unpin', () => showNotImplemented('Unpin thread')),
     vscode.commands.registerCommand('codexThreadManager.rename', () => showNotImplemented('Rename thread')),
@@ -174,4 +204,12 @@ async function showConnectionError(
   } else if (selection === 'Retry') {
     await retry(true);
   }
+}
+
+
+function getPageSize(): number {
+  const configuredPageSize = vscode.workspace
+    .getConfiguration('codexThreadManager')
+    .get<number>('pageSize', 50);
+  return Math.min(200, Math.max(1, configuredPageSize));
 }
