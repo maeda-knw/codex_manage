@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { AppServerClient } from './appServerClient';
 import type { Thread } from './protocol/generated/v2/Thread';
 import type { ThreadListParams } from './protocol/generated/v2/ThreadListParams';
+import type { ThreadStatus } from './protocol/generated/v2/ThreadStatus';
 
 export type ThreadGroupKind = 'pinned' | 'recent' | 'archive';
 
@@ -161,11 +162,17 @@ export class ThreadRepository {
       return Boolean(thread);
     }
     if (method === 'thread/name/updated' && isThreadNameUpdatedParams(params)) {
-      this.activeThreads = this.activeThreads.map((thread) => thread.id === params.threadId ? updateThreadTitle(thread, params.name) : thread);
-      this.archivedThreads = this.archivedThreads.map((thread) => thread.id === params.threadId ? updateThreadTitle(thread, params.name) : thread);
-      return true;
+      const changed = this.hasThread(params.threadId);
+      this.activeThreads = this.activeThreads.map((thread) => thread.id === params.threadId ? updateThreadTitle(thread, params.threadName) : thread);
+      this.archivedThreads = this.archivedThreads.map((thread) => thread.id === params.threadId ? updateThreadTitle(thread, params.threadName) : thread);
+      return changed;
     }
-    return method === 'thread/status/changed';
+    if (method === 'thread/status/changed' && isThreadStatusChangedParams(params)) {
+      const changed = this.hasThread(params.threadId);
+      this.activeThreads = this.activeThreads.map((thread) => thread.id === params.threadId ? updateThreadStatus(thread, params.status) : thread);
+      return changed;
+    }
+    return false;
   }
 
   private async runThreadOperation(threadId: string, operation: () => Promise<void>): Promise<void> {
@@ -191,6 +198,11 @@ export class ThreadRepository {
     };
     return this.client.listThreads(params);
   }
+
+  private hasThread(threadId: string): boolean {
+    return this.activeThreads.some((thread) => thread.id === threadId) ||
+      this.archivedThreads.some((thread) => thread.id === threadId);
+  }
 }
 
 function updateThreadTitle(thread: ThreadDisplayModel, title: string): ThreadDisplayModel {
@@ -205,6 +217,16 @@ function updateThreadTitle(thread: ThreadDisplayModel, title: string): ThreadDis
   return { ...thread, title, tooltip };
 }
 
+function updateThreadStatus(thread: ThreadDisplayModel, status: ThreadStatus): ThreadDisplayModel {
+  const statusLabel = formatStatus(status);
+  return {
+    ...thread,
+    description: `${formatRelativeTime(thread.recencyAt)} • ${statusLabel}`,
+    statusLabel,
+    iconId: thread.pinned ? 'pinned' : iconForStatus(status)
+  };
+}
+
 function markArchived(thread: ThreadDisplayModel): ThreadDisplayModel {
   return { ...thread, archived: true, pinned: false, iconId: 'archive' };
 }
@@ -217,8 +239,27 @@ function isThreadIdParams(value: unknown): value is { threadId: string } {
   return typeof value === 'object' && value !== null && 'threadId' in value && typeof (value as { threadId?: unknown }).threadId === 'string';
 }
 
-function isThreadNameUpdatedParams(value: unknown): value is { threadId: string; name: string } {
-  return isThreadIdParams(value) && 'name' in value && typeof (value as { name?: unknown }).name === 'string';
+function isThreadNameUpdatedParams(value: unknown): value is { threadId: string; threadName: string } {
+  return isThreadIdParams(value) &&
+    'threadName' in value &&
+    typeof (value as { threadName?: unknown }).threadName === 'string';
+}
+
+function isThreadStatusChangedParams(value: unknown): value is { threadId: string; status: ThreadStatus } {
+  return isThreadIdParams(value) &&
+    'status' in value &&
+    isThreadStatus((value as { status?: unknown }).status);
+}
+
+function isThreadStatus(value: unknown): value is ThreadStatus {
+  if (typeof value !== 'object' || value === null || !('type' in value)) {
+    return false;
+  }
+  const type = (value as { type?: unknown }).type;
+  if (type === 'active') {
+    return 'activeFlags' in value && Array.isArray((value as { activeFlags?: unknown }).activeFlags);
+  }
+  return type === 'idle' || type === 'notLoaded' || type === 'systemError';
 }
 
 function toDisplayModel(thread: Thread, archived: boolean): ThreadDisplayModel {
@@ -266,7 +307,7 @@ function fromUnixSeconds(value: number): Date {
   return new Date(value * 1_000);
 }
 
-function formatStatus(status: Thread['status']): string {
+function formatStatus(status: ThreadStatus): string {
   switch (status.type) {
     case 'active':
       return 'Running';
@@ -279,7 +320,7 @@ function formatStatus(status: Thread['status']): string {
   }
 }
 
-function iconForStatus(status: Thread['status']): string {
+function iconForStatus(status: ThreadStatus): string {
   switch (status.type) {
     case 'active':
       return 'sync~spin';

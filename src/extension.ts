@@ -136,6 +136,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     output,
+    provider,
     { dispose: () => activeClient?.dispose() },
     vscode.window.registerTreeDataProvider('codexThreadManager.threads', provider),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {

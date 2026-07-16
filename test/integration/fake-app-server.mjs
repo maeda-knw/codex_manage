@@ -2,6 +2,7 @@ import { createInterface } from 'node:readline';
 
 const mode = process.argv[2] ?? 'compatible';
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+let initialized = false;
 
 lines.on('line', (line) => {
   const message = JSON.parse(line);
@@ -15,10 +16,43 @@ lines.on('line', (line) => {
         platformOs: process.platform
       }
     });
+  } else if (message.method === 'initialized') {
+    initialized = true;
+    if (mode === 'server-request') {
+      send({ id: 'server-request-1', method: 'fixture/approval', params: { reason: 'test' } });
+    }
   } else if (message.method === 'thread/list' && mode === 'compatible') {
+    send({ id: message.id, result: { data: [], nextCursor: null, backwardsCursor: null } });
+  } else if (message.method === 'thread/list' && mode === 'diagnostics') {
+    process.stderr.write('Bearer super-secret-token sk-fixtureSecret12345678\n');
+    process.stdout.write('{malformed}\n');
+    send({ id: message.id, result: { data: [], nextCursor: null, backwardsCursor: null } });
+  } else if (message.method === 'thread/list' && mode === 'disconnect') {
+    send({ id: message.id, result: { data: [], nextCursor: null, backwardsCursor: null } });
+    setImmediate(() => process.exit(7));
+  } else if (message.method === 'thread/list' && mode === 'timeout') {
+    // Intentionally leave the request pending.
+  } else if (message.method === 'thread/list' && mode === 'server-request') {
     send({ id: message.id, result: { data: [], nextCursor: null, backwardsCursor: null } });
   } else if (message.method === 'thread/list' && mode === 'malformed') {
     send({ id: message.id, result: { data: 'invalid', nextCursor: null } });
+  } else if (
+    mode === 'operations' &&
+    ['thread/name/set', 'thread/archive', 'thread/unarchive'].includes(message.method)
+  ) {
+    send({ id: message.id, result: {} });
+    if (message.method === 'thread/name/set') {
+      send({
+        method: 'thread/name/updated',
+        params: { threadId: message.params.threadId, threadName: message.params.name }
+      });
+    } else {
+      send({ method: message.method === 'thread/archive' ? 'thread/archived' : 'thread/unarchived', params: message.params });
+    }
+  } else if (mode === 'server-request' && message.id === 'server-request-1' && message.error) {
+    send({ method: 'fixture/serverRequestRejected', params: { code: message.error.code } });
+  } else if (message.method === 'thread/list' && mode === 'operations' && initialized) {
+    send({ id: message.id, result: { data: [], nextCursor: null, backwardsCursor: null } });
   } else if (message.method === 'thread/list') {
     send({ id: message.id, error: { code: -32601, message: 'Method not found' } });
   }

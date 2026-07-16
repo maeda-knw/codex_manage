@@ -70,7 +70,7 @@ const EMPTY_SNAPSHOT: ThreadRepositorySnapshot = {
   archive: { threads: [], nextCursor: null, loaded: false }
 };
 
-export class ThreadTreeProvider implements vscode.TreeDataProvider<ThreadTreeElement> {
+export class ThreadTreeProvider implements vscode.TreeDataProvider<ThreadTreeElement>, vscode.Disposable {
   private readonly didChangeTreeDataEmitter = new vscode.EventEmitter<ThreadTreeElement | undefined | void>();
   private connectionStatus: ConnectionStatus = { kind: 'idle' };
   private snapshot: ThreadRepositorySnapshot = EMPTY_SNAPSHOT;
@@ -79,6 +79,10 @@ export class ThreadTreeProvider implements vscode.TreeDataProvider<ThreadTreeEle
 
   public refresh(): void {
     this.didChangeTreeDataEmitter.fire();
+  }
+
+  public dispose(): void {
+    this.didChangeTreeDataEmitter.dispose();
   }
 
   public setConnectionStatus(status: ConnectionStatus): void {
