@@ -26,6 +26,10 @@ export function activate(context: vscode.ExtensionContext): void {
     });
     client.onNotification((notification) => {
       output.appendLine(`[app-server] Notification: ${notification.method}`);
+      if (repository?.handleThreadNotification(notification.method, notification.params)) {
+        repository.setPinnedThreadIds(pinStore.getPinnedThreadIds());
+        provider.setSnapshot(repository.snapshot());
+      }
     });
     client.onDidDisconnect((error) => {
       if (client !== activeClient) {
@@ -153,9 +157,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('codexThreadManager.loadMoreArchive', () => loadMoreThreads('archive')),
     vscode.commands.registerCommand('codexThreadManager.pin', (item?: ThreadTreeItem) => pinThread(item, pinStore, repository, provider)),
     vscode.commands.registerCommand('codexThreadManager.unpin', (item?: ThreadTreeItem) => unpinThread(item, pinStore, repository, provider)),
-    vscode.commands.registerCommand('codexThreadManager.rename', () => showNotImplemented('Rename thread')),
-    vscode.commands.registerCommand('codexThreadManager.archive', () => showNotImplemented('Archive thread')),
-    vscode.commands.registerCommand('codexThreadManager.unarchive', () => showNotImplemented('Restore thread'))
+    vscode.commands.registerCommand('codexThreadManager.rename', (item?: ThreadTreeItem) => renameThread(item, repository, provider)),
+    vscode.commands.registerCommand('codexThreadManager.archive', (item?: ThreadTreeItem) => archiveThread(item, pinStore, repository, provider)),
+    vscode.commands.registerCommand('codexThreadManager.unarchive', (item?: ThreadTreeItem) => unarchiveThread(item, repository, provider))
   );
 
   output.appendLine('Codex Thread Manager activated.');
@@ -214,8 +218,97 @@ async function pruneLoadedPins(pinStore: PinStore, repository: ThreadRepository)
   ]);
 }
 
-function showNotImplemented(action: string): Thenable<void> {
-  return vscode.window.showInformationMessage(`${action} will be implemented in a later MVP phase.`).then(() => undefined);
+
+async function renameThread(
+  item: ThreadTreeItem | undefined,
+  repository: ThreadRepository | undefined,
+  provider: ThreadTreeProvider
+): Promise<void> {
+  const thread = item?.thread;
+  if (!thread || thread.archived || !repository) {
+    await vscode.window.showWarningMessage('Select an active Codex thread to rename.');
+    return;
+  }
+  if (repository.isOperationPending(thread.id)) {
+    await vscode.window.showWarningMessage('A Codex operation is already running for this thread.');
+    return;
+  }
+  const name = await vscode.window.showInputBox({
+    title: 'Rename Codex Thread',
+    prompt: 'Enter a new thread name.',
+    value: thread.title,
+    validateInput: (value) => value.trim() ? undefined : 'Thread name cannot be empty.'
+  });
+  if (name === undefined) {
+    return;
+  }
+  const trimmedName = name.trim();
+  if (!trimmedName) {
+    await vscode.window.showWarningMessage('Thread name cannot be empty.');
+    return;
+  }
+  try {
+    await repository.renameThread(thread.id, trimmedName);
+    provider.setSnapshot(repository.snapshot());
+  } catch (error) {
+    await showOperationError('rename the thread', error);
+  }
+}
+
+async function archiveThread(
+  item: ThreadTreeItem | undefined,
+  pinStore: PinStore,
+  repository: ThreadRepository | undefined,
+  provider: ThreadTreeProvider
+): Promise<void> {
+  const thread = item?.thread;
+  if (!thread || thread.archived || !repository) {
+    await vscode.window.showWarningMessage('Select an active Codex thread to archive.');
+    return;
+  }
+  if (repository.isOperationPending(thread.id)) {
+    await vscode.window.showWarningMessage('A Codex operation is already running for this thread.');
+    return;
+  }
+  try {
+    await repository.archiveThread(thread.id);
+    await pinStore.unpin(thread.id);
+    repository.setPinnedThreadIds(pinStore.getPinnedThreadIds());
+    provider.setSnapshot(repository.snapshot());
+    const selection = await vscode.window.showInformationMessage(`Archived “${thread.title}”.`, 'Undo');
+    if (selection === 'Undo') {
+      await repository.unarchiveThread(thread.id);
+      provider.setSnapshot(repository.snapshot());
+    }
+  } catch (error) {
+    await showOperationError('archive the thread', error);
+  }
+}
+
+async function unarchiveThread(
+  item: ThreadTreeItem | undefined,
+  repository: ThreadRepository | undefined,
+  provider: ThreadTreeProvider
+): Promise<void> {
+  const thread = item?.thread;
+  if (!thread || !thread.archived || !repository) {
+    await vscode.window.showWarningMessage('Select an archived Codex thread to restore.');
+    return;
+  }
+  if (repository.isOperationPending(thread.id)) {
+    await vscode.window.showWarningMessage('A Codex operation is already running for this thread.');
+    return;
+  }
+  try {
+    await repository.unarchiveThread(thread.id);
+    provider.setSnapshot(repository.snapshot());
+  } catch (error) {
+    await showOperationError('restore the thread', error);
+  }
+}
+
+async function showOperationError(action: string, error: unknown): Promise<void> {
+  await vscode.window.showErrorMessage(`Codex Thread Manager could not ${action}: ${connectionErrorMessage(error)}`);
 }
 
 function connectionErrorMessage(error: unknown): string {

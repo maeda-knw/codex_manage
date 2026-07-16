@@ -15,8 +15,11 @@ import type { ClientRequest } from './protocol/generated/ClientRequest';
 import type { InitializeParams } from './protocol/generated/InitializeParams';
 import type { InitializeResponse } from './protocol/generated/InitializeResponse';
 import type { RequestId } from './protocol/generated/RequestId';
+import type { ThreadArchiveParams } from './protocol/generated/v2/ThreadArchiveParams';
 import type { ThreadListParams } from './protocol/generated/v2/ThreadListParams';
 import type { ThreadListResponse } from './protocol/generated/v2/ThreadListResponse';
+import type { ThreadSetNameParams } from './protocol/generated/v2/ThreadSetNameParams';
+import type { ThreadUnarchiveParams } from './protocol/generated/v2/ThreadUnarchiveParams';
 import { GENERATED_CODEX_CLI_VERSION } from './protocol/generated/version';
 import {
   isJsonObject,
@@ -155,6 +158,22 @@ export class AppServerClient {
       }
       throw classified;
     }
+  }
+
+
+  public async renameThread(params: ThreadSetNameParams): Promise<void> {
+    await this.connect();
+    await this.sendRequest((id) => ({ method: 'thread/name/set', id, params }));
+  }
+
+  public async archiveThread(params: ThreadArchiveParams): Promise<void> {
+    await this.connect();
+    await this.sendRequest((id) => ({ method: 'thread/archive', id, params }));
+  }
+
+  public async unarchiveThread(params: ThreadUnarchiveParams): Promise<void> {
+    await this.connect();
+    await this.sendRequest((id) => ({ method: 'thread/unarchive', id, params }));
   }
 
   public dispose(): void {

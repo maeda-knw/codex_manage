@@ -1,7 +1,7 @@
 # Codex Thread Manager for VS Code 実装計画書
 
 - 作成日: 2026-07-14
-- 状態: Phase 4 完了（ワークスペース単位のピン留め）
+- 状態: Phase 5 完了（名前変更とアーカイブ）
 - 仮称: `Codex Thread Manager`
 - 調査環境: Windows / Codex CLI `0.142.3`
 
@@ -312,6 +312,14 @@ Phase 2 の実機確認で、通常の PowerShell と VS Code Extension Host で
 - App Server 通知による差分更新を実装
 
 完了条件: 操作結果が Codex 側に保存され、再取得後も一致する。
+
+実装結果（2026-07-16）:
+
+- 名前変更コマンドを実装し、空白除去後の空文字を拒否して `thread/name/set` へ保存するようにした。
+- アーカイブコマンドを実装し、成功通知から `Undo` で `thread/unarchive` を呼び出せるようにした。
+- アーカイブ一覧の復元コマンドを `thread/unarchive` に接続し、一覧キャッシュへ即時反映するようにした。
+- スレッド単位の操作中フラグで重複実行を防ぎ、失敗時は App Server 側の変更前キャッシュを維持してエラーを表示するようにした。
+- `thread/name/updated`、`thread/archived`、`thread/unarchived`、`thread/status/changed` 通知を受けて Tree View を更新するようにした。
 
 ### Phase 6: 品質保証と配布準備
 
