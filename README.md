@@ -12,6 +12,8 @@ The MVP is packaged for private VSIX installation. Marketplace publication is no
 - Archives threads, supports immediate Undo, and restores archived threads.
 - Loads large thread collections page by page.
 - Updates names, archive state, and execution status from App Server notifications.
+- Opens a read-only conversation tab for a selected thread, including stored user/Codex messages, turn state, and summarized work cards.
+- Reuses one conversation tab per thread and restores it by re-reading history after a VS Code window reload.
 - Reports CLI resolution, runtime/generated protocol versions, and compatibility diagnostics in the `Codex Thread Manager` Output Channel.
 
 Pinning is stored in VS Code `workspaceState`. It is not synchronized with Codex, other workspaces, or other machines.
@@ -51,8 +53,10 @@ Reload VS Code after installation.
 2. Open the Codex activity-bar view.
 3. Use the gear action beside **Refresh Threads** to open the extension settings.
 4. Use **Refresh Threads** if the list has not loaded.
-5. Use the row actions to pin, rename, archive, or restore a thread.
-6. Open **View: Toggle Output** and select `Codex Thread Manager` for connection diagnostics.
+5. Select a thread row to open its stored conversation history in a read-only editor tab.
+6. Use the row actions to pin, rename, archive, or restore a thread.
+7. Use **Reload history** in a conversation tab to fetch its latest stored state.
+8. Open **View: Toggle Output** and select `Codex Thread Manager` for connection diagnostics.
 
 Only threads whose `cwd` exactly matches one of the open workspace folder paths are shown. Threads started in a nested subdirectory are not included in this MVP.
 
@@ -93,7 +97,7 @@ VS Code for the Web and Virtual Workspaces are not supported because the extensi
 
 ### The CLI is reported as incompatible
 
-The runtime CLI may differ from the generated protocol version, but the required `initialize` and `thread/list` boundaries must be compatible. Update Codex CLI or select another CLI path, then run **Refresh Threads**.
+The runtime CLI may differ from the generated protocol version, but the required `initialize`, `thread/list`, and conversation `thread/read` boundaries must be compatible. Update Codex CLI or select another CLI path, then retry the failed operation.
 
 ### No threads are shown
 
@@ -112,9 +116,13 @@ The local list remains unchanged when the App Server rejects an operation. Revie
 
 ## Limitations
 
-- No new thread creation or conversation UI.
+- Conversation tabs are read-only: no prompt sending, streaming updates, Stop action, approvals, or follow-up questions yet.
+- Stored messages are rendered as plain text; Markdown rendering and clickable links are not enabled yet.
+- Raw reasoning content, command output, file diffs, and tool arguments/results are intentionally not displayed.
+- Some older turns may contain only summary history, which is indicated in the conversation tab.
+- Very large stored histories are currently loaded and rendered as one snapshot; progressive rendering is planned for a later vNext phase.
+- No new thread creation.
 - No thread deletion or bulk operations.
-- No display of turns, messages, diffs, or tool execution history.
 - No pin synchronization outside the current VS Code workspace.
 - No nested-workspace `cwd` matching.
 - No VS Code for the Web or Virtual Workspace support.
@@ -131,10 +139,10 @@ npm run package
 
 - `npm test`: unit and fake App Server integration tests.
 - `npm run test:vscode`: downloads VS Code 1.92.2 into `.vscode-test` and runs Extension Host registration tests.
-- `npm run verify`: tests, type checking, lint, and bundle generation.
+- `npm run verify`: tests, Extension Host/Webview type checking, lint, and bundle generation.
 - `npm run package`: builds the extension and creates the private VSIX.
 
-The opt-in real CLI smoke test only initializes and lists metadata:
+The opt-in real CLI smoke test initializes, lists one metadata record, and—when a matching thread exists—reads that thread only to validate its ID and stored-turn array:
 
 ```powershell
 $env:CODEX_SMOKE_PATH = 'C:\path\to\codex.cmd'

@@ -5,4 +5,6 @@
 !LICENSE
 !docs/TESTING.md
 !dist/extension.js
+!dist/webview/conversation.js
+!dist/webview/conversation.css
 !resources/codex.svg

@@ -1,30 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseInitializeResponse, parseThreadListResponse } from '../../src/codex/protocol/guards';
+import {
+  parseInitializeResponse,
+  parseThreadListResponse,
+  parseThreadReadResponse
+} from '../../src/codex/protocol/guards';
+import { createThread, createTurn } from '../support/threadFixture';
 
-const validThread = {
-  id: 'thread-1',
-  sessionId: 'session-1',
-  forkedFromId: null,
-  parentThreadId: null,
-  preview: 'Preview',
-  ephemeral: false,
-  modelProvider: 'openai',
-  createdAt: 1,
-  updatedAt: 2,
-  recencyAt: 2,
-  status: { type: 'idle' },
-  path: null,
-  cwd: 'C:\\workspace',
-  cliVersion: '0.144.2',
-  source: 'vscode',
-  threadSource: null,
-  agentNickname: null,
-  agentRole: null,
-  gitInfo: null,
-  name: null,
-  turns: []
-};
+const validThread = createThread();
 
 test('accepts valid initialize and thread/list boundaries', () => {
   assert.equal(parseInitializeResponse({
@@ -38,6 +21,61 @@ test('accepts valid initialize and thread/list boundaries', () => {
     nextCursor: null,
     backwardsCursor: null
   }).data[0]?.id, 'thread-1');
+});
+
+test('accepts a validated thread/read history including future item variants', () => {
+  const thread = createThread({
+    turns: [createTurn({
+      status: 'failed',
+      error: {
+        message: 'Fixture failure',
+        codexErrorInfo: 'usageLimitExceeded',
+        additionalDetails: null
+      },
+      items: [
+        {
+          type: 'userMessage',
+          id: 'user-1',
+          clientId: null,
+          content: [
+            { type: 'text', text: 'Hello', text_elements: [] },
+            { type: 'skill', name: 'review', path: 'D:\\skill' }
+          ]
+        },
+        {
+          type: 'futureWorkItem',
+          id: 'future-1',
+          privatePayload: 'ignored'
+        } as never
+      ]
+    })]
+  });
+
+  const response = parseThreadReadResponse({ thread }, 'thread-1');
+
+  assert.equal(response.thread.turns[0]?.items.length, 2);
+});
+
+test('rejects mismatched thread IDs and malformed stored items', () => {
+  assert.throws(
+    () => parseThreadReadResponse({ thread: validThread }, 'another-thread'),
+    /invalid thread\/read response/u
+  );
+  assert.throws(
+    () => parseThreadReadResponse({
+      thread: createThread({
+        turns: [createTurn({
+          items: [{
+            type: 'userMessage',
+            id: 'user-1',
+            clientId: null,
+            content: [{ type: 'skill', path: 'D:\\skill' }]
+          } as never]
+        })]
+      })
+    }, 'thread-1'),
+    /invalid thread\/read response/u
+  );
 });
 
 test('rejects non-finite timestamps, invalid statuses, and malformed cursors', () => {

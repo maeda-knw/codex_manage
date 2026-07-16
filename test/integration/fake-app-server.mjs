@@ -21,6 +21,22 @@ lines.on('line', (line) => {
     if (mode === 'server-request') {
       send({ id: 'server-request-1', method: 'fixture/approval', params: { reason: 'test' } });
     }
+  } else if (message.method === 'thread/read' && mode === 'thread-read') {
+    if (message.params?.threadId !== 'thread-1' || message.params?.includeTurns !== true) {
+      send({ id: message.id, error: { code: -32602, message: 'Expected includeTurns for thread-1' } });
+    } else {
+      send({ id: message.id, result: { thread: conversationThread('thread-1') } });
+    }
+  } else if (message.method === 'thread/read' && mode === 'malformed-thread-read') {
+    send({
+      id: message.id,
+      result: {
+        thread: {
+          ...conversationThread('different-thread'),
+          turns: [{ id: 'broken-turn', items: 'not-an-array' }]
+        }
+      }
+    });
   } else if (message.method === 'thread/list' && mode === 'compatible') {
     send({ id: message.id, result: { data: [], nextCursor: null, backwardsCursor: null } });
   } else if (message.method === 'thread/list' && mode === 'diagnostics') {
@@ -60,4 +76,53 @@ lines.on('line', (line) => {
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
+}
+
+function conversationThread(threadId) {
+  return {
+    id: threadId,
+    sessionId: 'session-1',
+    forkedFromId: null,
+    parentThreadId: null,
+    preview: 'Fixture conversation',
+    ephemeral: false,
+    modelProvider: 'openai',
+    createdAt: 1752633600,
+    updatedAt: 1752633660,
+    recencyAt: 1752633660,
+    status: { type: 'idle' },
+    path: null,
+    cwd: 'D:\\workspace',
+    cliVersion: '0.144.2',
+    source: 'vscode',
+    threadSource: null,
+    agentNickname: null,
+    agentRole: null,
+    gitInfo: null,
+    name: 'Fixture conversation',
+    turns: [{
+      id: 'turn-1',
+      itemsView: 'full',
+      status: 'completed',
+      error: null,
+      startedAt: 1752633600,
+      completedAt: 1752633602,
+      durationMs: 2000,
+      items: [
+        {
+          type: 'userMessage',
+          id: 'user-1',
+          clientId: null,
+          content: [{ type: 'text', text: 'Hello', text_elements: [] }]
+        },
+        {
+          type: 'agentMessage',
+          id: 'agent-1',
+          text: 'Hi there',
+          phase: 'final_answer',
+          memoryCitation: null
+        }
+      ]
+    }]
+  };
 }

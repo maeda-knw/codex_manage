@@ -2,6 +2,10 @@ import * as vscode from 'vscode';
 import { AppServerClient } from './codex/appServerClient';
 import { ThreadRepository } from './codex/threadRepository';
 import { AppServerError } from './common/errors';
+import {
+  CONVERSATION_VIEW_TYPE,
+  ConversationPanelManager
+} from './conversation/conversationPanelManager';
 import { PinStore } from './state/pinStore';
 import { ThreadTreeItem, ThreadTreeProvider } from './views/threadTreeProvider';
 
@@ -133,12 +137,22 @@ export function activate(context: vscode.ExtensionContext): void {
   activeClient = createClient();
   repository = new ThreadRepository(activeClient);
   repository.setPinnedThreadIds(pinStore.getPinnedThreadIds());
+  const conversationPanels = new ConversationPanelManager({
+    extensionUri: context.extensionUri,
+    readThread: async (threadId) => {
+      const client = activeClient ?? replaceClient();
+      return (await client.readThread({ threadId, includeTurns: true })).thread;
+    },
+    logger: output
+  });
 
   context.subscriptions.push(
     output,
     provider,
+    conversationPanels,
     { dispose: () => activeClient?.dispose() },
     vscode.window.registerTreeDataProvider('codexThreadManager.threads', provider),
+    vscode.window.registerWebviewPanelSerializer(CONVERSATION_VIEW_TYPE, conversationPanels),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       void refreshThreads(false);
     }),
@@ -156,6 +170,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('codexThreadManager.refresh', () => refreshThreads(true)),
     vscode.commands.registerCommand('codexThreadManager.openSettings', () =>
       vscode.commands.executeCommand('workbench.action.openSettings', `@ext:${context.extension.id}`)
+    ),
+    vscode.commands.registerCommand('codexThreadManager.openThread', (threadId?: string) =>
+      openThread(threadId, repository, conversationPanels)
     ),
     vscode.commands.registerCommand('codexThreadManager.loadMoreActive', () => loadMoreThreads('active')),
     vscode.commands.registerCommand('codexThreadManager.loadMoreArchive', () => loadMoreThreads('archive')),
@@ -363,4 +380,20 @@ function getPageSize(): number {
     .getConfiguration('codexThreadManager')
     .get<number>('pageSize', 50);
   return Math.min(200, Math.max(1, configuredPageSize));
+}
+
+async function openThread(
+  threadId: string | undefined,
+  repository: ThreadRepository | undefined,
+  conversationPanels: ConversationPanelManager
+): Promise<void> {
+  const thread = threadId ? repository?.findThread(threadId) : undefined;
+  if (!thread) {
+    await vscode.window.showWarningMessage(
+      'Select a Codex thread from the thread view to open its conversation.'
+    );
+    return;
+  }
+
+  conversationPanels.openThread({ id: thread.id, title: thread.title });
 }
