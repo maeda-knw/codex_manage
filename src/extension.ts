@@ -154,6 +154,9 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
     vscode.commands.registerCommand('codexThreadManager.refresh', () => refreshThreads(true)),
+    vscode.commands.registerCommand('codexThreadManager.openSettings', () =>
+      vscode.commands.executeCommand('workbench.action.openSettings', `@ext:${context.extension.id}`)
+    ),
     vscode.commands.registerCommand('codexThreadManager.loadMoreActive', () => loadMoreThreads('active')),
     vscode.commands.registerCommand('codexThreadManager.loadMoreArchive', () => loadMoreThreads('archive')),
     vscode.commands.registerCommand('codexThreadManager.pin', (item?: ThreadTreeItem) => pinThread(item, pinStore, repository, provider)),

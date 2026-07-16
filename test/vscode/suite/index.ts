@@ -16,6 +16,7 @@ export async function run(): Promise<void> {
   const commands = new Set(await vscode.commands.getCommands(true));
   for (const command of [
     'codexThreadManager.refresh',
+    'codexThreadManager.openSettings',
     'codexThreadManager.loadMoreActive',
     'codexThreadManager.loadMoreArchive',
     'codexThreadManager.pin',
@@ -29,8 +30,10 @@ export async function run(): Promise<void> {
 
   const manifest = extension.packageJSON as {
     contributes?: {
+      commands?: Array<{ command?: string; icon?: string; title?: string }>;
       views?: Record<string, Array<{ id?: string }>>;
       menus?: {
+        'view/title'?: Array<{ command?: string; group?: string; when?: string }>;
         'view/item/context'?: Array<{ command?: string; when?: string }>;
       };
     };
@@ -40,6 +43,31 @@ export async function run(): Promise<void> {
   assert.equal(
     manifest.contributes?.views?.codexThreadManager?.some(
       (view) => view.id === 'codexThreadManager.threads'
+    ),
+    true
+  );
+
+  assert.equal(
+    manifest.contributes?.commands?.some((command) =>
+      command.command === 'codexThreadManager.openSettings' &&
+      command.title === 'Open Settings' &&
+      command.icon === '$(gear)'
+    ),
+    true
+  );
+  const titleMenuEntries = manifest.contributes?.menus?.['view/title'] ?? [];
+  assert.equal(
+    titleMenuEntries.some((entry) =>
+      entry.command === 'codexThreadManager.refresh' &&
+      entry.group === 'navigation@1'
+    ),
+    true
+  );
+  assert.equal(
+    titleMenuEntries.some((entry) =>
+      entry.command === 'codexThreadManager.openSettings' &&
+      entry.group === 'navigation@2' &&
+      entry.when === 'view == codexThreadManager.threads'
     ),
     true
   );
