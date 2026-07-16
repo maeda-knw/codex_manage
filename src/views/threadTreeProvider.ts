@@ -33,14 +33,18 @@ class MessageTreeItem extends vscode.TreeItem {
   }
 }
 
-class ThreadTreeItem extends vscode.TreeItem {
+export class ThreadTreeItem extends vscode.TreeItem {
   public constructor(public readonly thread: ThreadDisplayModel) {
     super(thread.title, vscode.TreeItemCollapsibleState.None);
     this.id = thread.id;
     this.description = thread.description;
     this.tooltip = thread.tooltip;
     this.iconPath = new vscode.ThemeIcon(thread.iconId);
-    this.contextValue = thread.archived ? 'codexThreadManager.thread.archived' : 'codexThreadManager.thread.active';
+    this.contextValue = thread.archived
+      ? 'codexThreadManager.thread.archived'
+      : thread.pinned
+        ? 'codexThreadManager.thread.active.pinned'
+        : 'codexThreadManager.thread.active.unpinned';
     this.accessibilityInformation = { label: `${thread.title}, ${thread.description}` };
   }
 }
@@ -61,6 +65,7 @@ class LoadMoreTreeItem extends vscode.TreeItem {
 type ThreadTreeElement = RootTreeItem | MessageTreeItem | ThreadTreeItem | LoadMoreTreeItem;
 
 const EMPTY_SNAPSHOT: ThreadRepositorySnapshot = {
+  pinned: { threads: [], nextCursor: null, loaded: true },
   active: { threads: [], nextCursor: null, loaded: false },
   archive: { threads: [], nextCursor: null, loaded: false }
 };
@@ -110,7 +115,7 @@ export class ThreadTreeProvider implements vscode.TreeDataProvider<ThreadTreeEle
     }
 
     return [
-      new RootTreeItem('pinned', 'Pinned', 'Pinning starts in Phase 4.', 'pinned', vscode.TreeItemCollapsibleState.Expanded),
+      new RootTreeItem('pinned', 'Pinned', this.getPinnedDescription(), 'pinned', vscode.TreeItemCollapsibleState.Expanded),
       new RootTreeItem('recent', 'Recent Threads', this.getRecentDescription(), 'history', vscode.TreeItemCollapsibleState.Expanded),
       new RootTreeItem('archive', 'Archive', this.getArchiveDescription(), 'archive', vscode.TreeItemCollapsibleState.Collapsed)
     ];
@@ -119,7 +124,7 @@ export class ThreadTreeProvider implements vscode.TreeDataProvider<ThreadTreeEle
   private getGroupChildren(kind: RootItemKind): ThreadTreeElement[] {
     switch (kind) {
       case 'pinned':
-        return [new MessageTreeItem('No pinned threads yet', 'Pinning starts in Phase 4.', 'info')];
+        return this.getThreadChildren(this.snapshot.pinned.threads, null, 'active');
       case 'recent':
         return this.getThreadChildren(this.snapshot.active.threads, this.snapshot.active.nextCursor, 'active');
       case 'archive':
@@ -143,6 +148,11 @@ export class ThreadTreeProvider implements vscode.TreeDataProvider<ThreadTreeEle
       return children;
     }
     return [this.getConnectionMessage(group)];
+  }
+
+  private getPinnedDescription(): string {
+    const count = this.snapshot.pinned.threads.length;
+    return count === 1 ? '1 pinned thread.' : `${count} pinned threads.`;
   }
 
   private getRecentDescription(): string {
@@ -179,6 +189,9 @@ export class ThreadTreeProvider implements vscode.TreeDataProvider<ThreadTreeEle
       case 'connecting':
         return new MessageTreeItem('Connecting to Codex…', 'Initializing the local App Server.', 'sync~spin');
       case 'ready':
+        if (group === 'active') {
+          return new MessageTreeItem('No threads in this group', 'Pin or start a Codex thread in this workspace to see it here.', 'comment-discussion');
+        }
         return new MessageTreeItem('No workspace threads', 'Start a Codex thread in this workspace to see it here.', 'comment-discussion');
       case 'error':
         return new MessageTreeItem('Unable to connect to Codex', this.connectionStatus.message, 'error');

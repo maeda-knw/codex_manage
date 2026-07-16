@@ -28,6 +28,7 @@ export interface ThreadPageState {
 }
 
 export interface ThreadRepositorySnapshot {
+  readonly pinned: ThreadPageState;
   readonly active: ThreadPageState;
   readonly archive: ThreadPageState;
 }
@@ -39,12 +40,22 @@ export class ThreadRepository {
   private activeCursor: string | null = null;
   private archiveCursor: string | null = null;
   private archiveLoaded = false;
+  private pinnedThreadIds: readonly string[] = [];
 
   public constructor(private readonly client: AppServerClient) {}
 
+  public setPinnedThreadIds(threadIds: readonly string[]): void {
+    this.pinnedThreadIds = [...threadIds];
+    this.activeThreads = applyPinState(this.activeThreads, this.pinnedThreadIds, false);
+    this.archivedThreads = applyPinState(this.archivedThreads, [], true);
+  }
+
   public snapshot(): ThreadRepositorySnapshot {
+    const pinnedThreads = getPinnedThreads(this.activeThreads, this.pinnedThreadIds);
+    const pinnedIds = new Set(pinnedThreads.map((thread) => thread.id));
     return {
-      active: { threads: this.activeThreads, nextCursor: this.activeCursor, loaded: true },
+      pinned: { threads: pinnedThreads, nextCursor: null, loaded: true },
+      active: { threads: this.activeThreads.filter((thread) => !pinnedIds.has(thread.id)), nextCursor: this.activeCursor, loaded: true },
       archive: { threads: this.archivedThreads, nextCursor: this.archiveCursor, loaded: this.archiveLoaded }
     };
   }
@@ -59,7 +70,7 @@ export class ThreadRepository {
 
   public async refreshActive(workspaceFolders: readonly vscode.WorkspaceFolder[], pageSize: number): Promise<ThreadPageState> {
     const page = await this.list(workspaceFolders, pageSize, false, null);
-    this.activeThreads = page.data.map((thread) => toDisplayModel(thread, false));
+    this.activeThreads = applyPinState(page.data.map((thread) => toDisplayModel(thread, false)), this.pinnedThreadIds, false);
     this.activeCursor = page.nextCursor;
     return this.snapshot().active;
   }
@@ -69,14 +80,14 @@ export class ThreadRepository {
       return this.snapshot().active;
     }
     const page = await this.list(workspaceFolders, pageSize, false, this.activeCursor);
-    this.activeThreads = [...this.activeThreads, ...page.data.map((thread) => toDisplayModel(thread, false))];
+    this.activeThreads = applyPinState([...this.activeThreads, ...page.data.map((thread) => toDisplayModel(thread, false))], this.pinnedThreadIds, false);
     this.activeCursor = page.nextCursor;
     return this.snapshot().active;
   }
 
   public async refreshArchive(workspaceFolders: readonly vscode.WorkspaceFolder[], pageSize: number): Promise<ThreadPageState> {
     const page = await this.list(workspaceFolders, pageSize, true, null);
-    this.archivedThreads = page.data.map((thread) => toDisplayModel(thread, true));
+    this.archivedThreads = applyPinState(page.data.map((thread) => toDisplayModel(thread, true)), [], true);
     this.archiveCursor = page.nextCursor;
     this.archiveLoaded = true;
     return this.snapshot().archive;
@@ -87,7 +98,7 @@ export class ThreadRepository {
       return this.snapshot().archive;
     }
     const page = await this.list(workspaceFolders, pageSize, true, this.archiveCursor);
-    this.archivedThreads = [...this.archivedThreads, ...page.data.map((thread) => toDisplayModel(thread, true))];
+    this.archivedThreads = applyPinState([...this.archivedThreads, ...page.data.map((thread) => toDisplayModel(thread, true))], [], true);
     this.archiveCursor = page.nextCursor;
     this.archiveLoaded = true;
     return this.snapshot().archive;
@@ -199,4 +210,29 @@ function formatRelativeTime(date: Date): string {
 
 function escapeMarkdown(value: string): string {
   return value.replace(/[\\`*_{}[\]()#+\-.!|]/gu, '\\$&');
+}
+
+
+function applyPinState(
+  threads: readonly ThreadDisplayModel[],
+  pinnedThreadIds: readonly string[],
+  archived: boolean
+): ThreadDisplayModel[] {
+  const pinned = new Set(archived ? [] : pinnedThreadIds);
+  return threads.map((thread) => ({
+    ...thread,
+    pinned: pinned.has(thread.id),
+    iconId: pinned.has(thread.id) ? 'pinned' : thread.iconId
+  }));
+}
+
+function getPinnedThreads(
+  threads: readonly ThreadDisplayModel[],
+  pinnedThreadIds: readonly string[]
+): ThreadDisplayModel[] {
+  const byId = new Map(threads.map((thread) => [thread.id, thread]));
+  return pinnedThreadIds.flatMap((threadId) => {
+    const thread = byId.get(threadId);
+    return thread ? [thread] : [];
+  });
 }
