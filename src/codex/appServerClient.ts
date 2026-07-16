@@ -2,6 +2,14 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { createInterface, type Interface } from 'node:readline';
 import { AppServerError, AppServerRequestError, asError } from '../common/errors';
+import {
+  CodexExecutableResolverError,
+  probeCodexVersion,
+  resolveCodexCommand,
+  type CodexCommand,
+  type CodexCommandSource,
+  type CodexVersionProbe
+} from './codexExecutableResolver';
 import { JsonlTransport } from './jsonlTransport';
 import type { ClientRequest } from './protocol/generated/ClientRequest';
 import type { InitializeParams } from './protocol/generated/InitializeParams';
@@ -9,6 +17,7 @@ import type { InitializeResponse } from './protocol/generated/InitializeResponse
 import type { RequestId } from './protocol/generated/RequestId';
 import type { ThreadListParams } from './protocol/generated/v2/ThreadListParams';
 import type { ThreadListResponse } from './protocol/generated/v2/ThreadListResponse';
+import { GENERATED_CODEX_CLI_VERSION } from './protocol/generated/version';
 import {
   isJsonObject,
   isRequestId,
@@ -28,6 +37,18 @@ export interface AppServerClientOptions {
   readonly clientVersion: string;
   readonly logger: AppServerLogger;
   readonly requestTimeoutMs?: number;
+  readonly commandResolver?: (configuredPath: string) => Promise<CodexCommand>;
+  readonly versionProbe?: (command: CodexCommand) => Promise<CodexVersionProbe>;
+}
+
+export type AppServerCompatibility = 'unchecked' | 'compatible' | 'incompatible';
+
+export interface AppServerDiagnostics {
+  readonly compatibility: AppServerCompatibility;
+  readonly generatedVersion: string;
+  readonly resolvedPath: string | undefined;
+  readonly runtimeVersion: string | undefined;
+  readonly source: CodexCommandSource | undefined;
 }
 
 export interface AppServerNotification {
@@ -55,6 +76,13 @@ export class AppServerClient {
   private initializeResponse: InitializeResponse | undefined;
   private nextRequestId = 1;
   private state: ConnectionState = 'idle';
+  private diagnostics: AppServerDiagnostics = {
+    compatibility: 'unchecked',
+    generatedVersion: GENERATED_CODEX_CLI_VERSION,
+    resolvedPath: undefined,
+    runtimeVersion: undefined,
+    source: undefined
+  };
 
   public constructor(private readonly options: AppServerClientOptions) {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
@@ -78,6 +106,10 @@ export class AppServerClient {
     };
   }
 
+  public getDiagnostics(): AppServerDiagnostics {
+    return { ...this.diagnostics };
+  }
+
   public connect(): Promise<InitializeResponse> {
     if (this.state === 'disposed') {
       return Promise.reject(new AppServerError('disposed', 'The App Server client has been disposed.'));
@@ -92,14 +124,11 @@ export class AppServerClient {
     }
 
     this.state = 'starting';
-    try {
-      this.startProcess();
-    } catch (error) {
-      this.state = 'idle';
-      return Promise.reject(this.normalizeConnectionError(error, 'Failed to start Codex App Server.'));
-    }
-    this.connectPromise = this.initialize().catch((error: unknown) => {
-      const connectionError = this.normalizeConnectionError(error, 'Failed to initialize Codex App Server.');
+    this.connectPromise = this.startConnection().catch((error: unknown) => {
+      const connectionError = this.classifyRequiredProtocolError(
+        error,
+        'Failed to initialize Codex App Server.'
+      );
       this.stopProcess(connectionError, false);
       throw connectionError;
     });
@@ -109,12 +138,22 @@ export class AppServerClient {
 
   public async listThreads(params: ThreadListParams): Promise<ThreadListResponse> {
     await this.connect();
-    const result = await this.sendRequest((id) => ({ method: 'thread/list', id, params }));
-
     try {
-      return parseThreadListResponse(result);
+      const result = await this.sendRequest((id) => ({ method: 'thread/list', id, params }));
+      const response = parseThreadListResponse(result);
+      if (this.diagnostics.compatibility !== 'compatible') {
+        this.diagnostics = { ...this.diagnostics, compatibility: 'compatible' };
+        this.options.logger.appendLine(
+          '[compatibility] Required initialize/thread/list methods and response boundaries are compatible.'
+        );
+      }
+      return response;
     } catch (error) {
-      throw new AppServerError('protocol-error', asError(error).message, { cause: error });
+      const classified = this.classifyRequiredProtocolError(error, 'thread/list failed.');
+      if (classified.code === 'incompatible-cli') {
+        this.stopProcess(classified, false);
+      }
+      throw classified;
     }
   }
 
@@ -155,10 +194,72 @@ export class AppServerClient {
     return response;
   }
 
-  private startProcess(): void {
+  private async startConnection(): Promise<InitializeResponse> {
+    this.diagnostics = {
+      compatibility: 'unchecked',
+      generatedVersion: GENERATED_CODEX_CLI_VERSION,
+      resolvedPath: undefined,
+      runtimeVersion: undefined,
+      source: undefined
+    };
+    let command: CodexCommand;
+    try {
+      command = this.options.commandResolver
+        ? await this.options.commandResolver(this.options.codexPath)
+        : await resolveCodexCommand({ configuredPath: this.options.codexPath });
+    } catch (error) {
+      if (error instanceof CodexExecutableResolverError) {
+        throw new AppServerError('cli-not-found', error.message, { cause: error });
+      }
+      throw new AppServerError(
+        'process-start-failed',
+        `Could not resolve Codex CLI: ${asError(error).message}`,
+        { cause: error }
+      );
+    }
+
+    if (this.state === 'disposed') {
+      throw new AppServerError('disposed', 'The App Server client has been disposed.');
+    }
+
+    this.diagnostics = {
+      ...this.diagnostics,
+      resolvedPath: command.resolvedPath,
+      source: command.source
+    };
+    this.options.logger.appendLine(
+      `[cli] Resolved Codex CLI (${command.source}): ${command.resolvedPath}`
+    );
+    await this.recordVersionDiagnostics(command);
+    this.startProcess(command);
+    return this.initialize();
+  }
+
+  private async recordVersionDiagnostics(command: CodexCommand): Promise<void> {
+    try {
+      const result = this.options.versionProbe
+        ? await this.options.versionProbe(command)
+        : await probeCodexVersion(command);
+      this.diagnostics = { ...this.diagnostics, runtimeVersion: result.version };
+      this.options.logger.appendLine(
+        `[compatibility] Runtime Codex CLI: ${result.version ?? (result.raw || 'unknown')}; generated protocol: ${GENERATED_CODEX_CLI_VERSION}.`
+      );
+      if (result.version && result.version !== GENERATED_CODEX_CLI_VERSION) {
+        this.options.logger.appendLine(
+          '[compatibility] Version mismatch detected; continuing with required protocol checks.'
+        );
+      }
+    } catch (error) {
+      this.options.logger.appendLine(
+        `[compatibility] Could not read codex --version (${asError(error).message}); generated protocol: ${GENERATED_CODEX_CLI_VERSION}. Continuing with protocol checks.`
+      );
+    }
+  }
+
+  private startProcess(command: CodexCommand): void {
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn(this.options.codexPath, ['app-server', '--listen', 'stdio://'], {
+      child = spawn(command.executable, [...command.prefixArgs, 'app-server', '--listen', 'stdio://'], {
         shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true
@@ -341,7 +442,7 @@ export class AppServerClient {
     if (error.code === 'ENOENT') {
       return new AppServerError(
         'cli-not-found',
-        `Codex CLI was not found at "${this.options.codexPath}".`,
+        'The resolved Codex CLI executable could not be started.',
         { cause: error }
       );
     }
@@ -356,6 +457,25 @@ export class AppServerClient {
     }
     const error = asError(value);
     return new AppServerError('connection-closed', error.message || fallbackMessage, { cause: error });
+  }
+
+  private classifyRequiredProtocolError(value: unknown, fallbackMessage: string): AppServerError {
+    const requiredMethodMissing = value instanceof AppServerRequestError && value.requestCode === -32601;
+    const invalidBoundary = !(value instanceof AppServerError) || value.code === 'protocol-error';
+    if (requiredMethodMissing || invalidBoundary) {
+      this.diagnostics = { ...this.diagnostics, compatibility: 'incompatible' };
+      const runtimeVersion = this.diagnostics.runtimeVersion ?? 'unknown';
+      const detail = asError(value).message || fallbackMessage;
+      this.options.logger.appendLine(
+        `[compatibility] Incompatible required protocol: ${detail} Runtime=${runtimeVersion}; generated=${GENERATED_CODEX_CLI_VERSION}.`
+      );
+      return new AppServerError(
+        'incompatible-cli',
+        `Codex CLI ${runtimeVersion} is incompatible with generated protocol ${GENERATED_CODEX_CLI_VERSION}: ${detail}`,
+        { cause: value }
+      );
+    }
+    return this.normalizeConnectionError(value, fallbackMessage);
   }
 }
 

@@ -5,6 +5,7 @@ export type AppServerErrorCode =
   | 'request-timeout'
   | 'request-failed'
   | 'protocol-error'
+  | 'incompatible-cli'
   | 'disposed';
 
 export class AppServerError extends Error {

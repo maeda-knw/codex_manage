@@ -1,7 +1,7 @@
 # Codex Thread Manager for VS Code 実装計画書
 
 - 作成日: 2026-07-14
-- 状態: Phase 2 完了（App Server 接続）
+- 状態: Phase 2.1 完了（CLI 解決と互換性診断）
 - 仮称: `Codex Thread Manager`
 - 調査環境: Windows / Codex CLI `0.142.3`
 
@@ -263,6 +263,13 @@ Phase 2 の実機確認で、通常の PowerShell と VS Code Extension Host で
 - 型生成に使う開発用 CLI のバージョンを再現可能な形で固定し、更新時は生成差分と互換性テストを同じ変更に含める。
 
 完了条件: Windows の公式 npm インストールを含む標準的な CLI 配置を既定設定で安全に解決でき、生成元と異なる互換 CLI でも `thread/list` が成功し、非互換 CLI では理由と対処が表示される。
+
+実装結果（2026-07-15）:
+
+- ネイティブ実行ファイルを優先し、Windows の公式 npm shim をmanifest検証後に `node` と先行引数へ分解するresolverを追加した。
+- 型生成CLIをexactな開発依存 `@openai/codex@0.144.2` に固定し、生成元バージョン定数もスナップショットと同時生成するようにした。
+- 実行時 `0.142.3`／生成元 `0.144.2` の公式npm CLIで、実データを変更しない `initialize` と `thread/list(limit: 1)` の成功を確認した。
+- 必須メソッド未対応と不正な境界レスポンスを統合テストし、両バージョンと設定／再試行の対処を返すことを確認した。
 
 ### Phase 3: 読み取り専用の一覧
 
