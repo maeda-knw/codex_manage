@@ -49,9 +49,10 @@ Reload VS Code after installation.
 
 1. Open a workspace folder.
 2. Open the Codex activity-bar view.
-3. Use **Refresh Threads** if the list has not loaded.
-4. Use the row actions to pin, rename, archive, or restore a thread.
-5. Open **View: Toggle Output** and select `Codex Thread Manager` for connection diagnostics.
+3. Use the gear action beside **Refresh Threads** to open the extension settings.
+4. Use **Refresh Threads** if the list has not loaded.
+5. Use the row actions to pin, rename, archive, or restore a thread.
+6. Open **View: Toggle Output** and select `Codex Thread Manager` for connection diagnostics.
 
 Only threads whose `cwd` exactly matches one of the open workspace folder paths are shown. Threads started in a nested subdirectory are not included in this MVP.
 

@@ -48,6 +48,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "codexThreadManager.openSettings",
+        "title": "Open Settings",
+        "category": "Codex Thread Manager",
+        "icon": "$(gear)"
+      },
+      {
         "command": "codexThreadManager.pin",
         "title": "Pin Thread",
         "category": "Codex Thread Manager",
@@ -83,7 +89,12 @@
         {
           "command": "codexThreadManager.refresh",
           "when": "view == codexThreadManager.threads",
-          "group": "navigation"
+          "group": "navigation@1"
+        },
+        {
+          "command": "codexThreadManager.openSettings",
+          "when": "view == codexThreadManager.threads",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [

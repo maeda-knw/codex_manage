@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added a view-title settings action beside Refresh Threads for quick access to the extension configuration.
+- Added vNext Phase A.5 planning for a Webview View-based thread list with larger, card-like rows.
 - Completed the private-distribution MVP through Phase 6.
 - Added workspace-scoped pinning, rename, archive, Undo, and restore operations.
 - Added notification-driven name, archive, and status updates.
