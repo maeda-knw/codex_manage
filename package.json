@@ -85,6 +85,33 @@
           "when": "view == codexThreadManager.threads",
           "group": "navigation"
         }
+      ],
+      "view/item/context": [
+        {
+          "command": "codexThreadManager.pin",
+          "when": "view == codexThreadManager.threads && viewItem == codexThreadManager.thread.active.unpinned",
+          "group": "inline@1"
+        },
+        {
+          "command": "codexThreadManager.unpin",
+          "when": "view == codexThreadManager.threads && viewItem == codexThreadManager.thread.active.pinned",
+          "group": "inline@1"
+        },
+        {
+          "command": "codexThreadManager.rename",
+          "when": "view == codexThreadManager.threads && (viewItem == codexThreadManager.thread.active.unpinned || viewItem == codexThreadManager.thread.active.pinned)",
+          "group": "2_edit@1"
+        },
+        {
+          "command": "codexThreadManager.archive",
+          "when": "view == codexThreadManager.threads && (viewItem == codexThreadManager.thread.active.unpinned || viewItem == codexThreadManager.thread.active.pinned)",
+          "group": "3_manage@1"
+        },
+        {
+          "command": "codexThreadManager.unarchive",
+          "when": "view == codexThreadManager.threads && viewItem == codexThreadManager.thread.archived",
+          "group": "3_manage@1"
+        }
       ]
     },
     "configuration": {

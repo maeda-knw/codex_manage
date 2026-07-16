@@ -2,13 +2,15 @@ import * as vscode from 'vscode';
 import { AppServerClient } from './codex/appServerClient';
 import { ThreadRepository } from './codex/threadRepository';
 import { AppServerError } from './common/errors';
-import { ThreadTreeProvider } from './views/threadTreeProvider';
+import { PinStore } from './state/pinStore';
+import { ThreadTreeItem, ThreadTreeProvider } from './views/threadTreeProvider';
 
 let activeClient: AppServerClient | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Codex Thread Manager');
   const provider = new ThreadTreeProvider();
+  const pinStore = new PinStore(context.workspaceState);
   let probeGeneration = 0;
   let repository: ThreadRepository | undefined;
 
@@ -41,6 +43,7 @@ export function activate(context: vscode.ExtensionContext): void {
     activeClient?.dispose();
     activeClient = createClient();
     repository = new ThreadRepository(activeClient);
+    repository.setPinnedThreadIds(pinStore.getPinnedThreadIds());
     provider.setSnapshot(repository.snapshot());
     return activeClient;
   };
@@ -60,6 +63,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const client = activeClient ?? replaceClient();
     const repo = repository ?? new ThreadRepository(client);
     repository = repo;
+    repo.setPinnedThreadIds(pinStore.getPinnedThreadIds());
     const generation = ++probeGeneration;
     provider.setConnectionStatus({ kind: 'connecting' });
 
@@ -72,6 +76,8 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
+      await pruneLoadedPins(pinStore, repo);
+      repo.setPinnedThreadIds(pinStore.getPinnedThreadIds());
       provider.setSnapshot(repo.snapshot());
       provider.setConnectionStatus({ kind: 'ready' });
       output.appendLine(
@@ -122,6 +128,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   activeClient = createClient();
   repository = new ThreadRepository(activeClient);
+  repository.setPinnedThreadIds(pinStore.getPinnedThreadIds());
 
   context.subscriptions.push(
     output,
@@ -144,8 +151,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('codexThreadManager.refresh', () => refreshThreads(true)),
     vscode.commands.registerCommand('codexThreadManager.loadMoreActive', () => loadMoreThreads('active')),
     vscode.commands.registerCommand('codexThreadManager.loadMoreArchive', () => loadMoreThreads('archive')),
-    vscode.commands.registerCommand('codexThreadManager.pin', () => showNotImplemented('Pin thread')),
-    vscode.commands.registerCommand('codexThreadManager.unpin', () => showNotImplemented('Unpin thread')),
+    vscode.commands.registerCommand('codexThreadManager.pin', (item?: ThreadTreeItem) => pinThread(item, pinStore, repository, provider)),
+    vscode.commands.registerCommand('codexThreadManager.unpin', (item?: ThreadTreeItem) => unpinThread(item, pinStore, repository, provider)),
     vscode.commands.registerCommand('codexThreadManager.rename', () => showNotImplemented('Rename thread')),
     vscode.commands.registerCommand('codexThreadManager.archive', () => showNotImplemented('Archive thread')),
     vscode.commands.registerCommand('codexThreadManager.unarchive', () => showNotImplemented('Restore thread'))
@@ -158,6 +165,53 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {
   activeClient?.dispose();
   activeClient = undefined;
+}
+
+async function pinThread(
+  item: ThreadTreeItem | undefined,
+  pinStore: PinStore,
+  repository: ThreadRepository | undefined,
+  provider: ThreadTreeProvider
+): Promise<void> {
+  const thread = item?.thread;
+  if (!thread || thread.archived) {
+    await vscode.window.showWarningMessage('Select an active Codex thread to pin.');
+    return;
+  }
+  await pinStore.pin(thread.id);
+  repository?.setPinnedThreadIds(pinStore.getPinnedThreadIds());
+  if (repository) {
+    provider.setSnapshot(repository.snapshot());
+  }
+}
+
+async function unpinThread(
+  item: ThreadTreeItem | undefined,
+  pinStore: PinStore,
+  repository: ThreadRepository | undefined,
+  provider: ThreadTreeProvider
+): Promise<void> {
+  const thread = item?.thread;
+  if (!thread) {
+    await vscode.window.showWarningMessage('Select a pinned Codex thread to unpin.');
+    return;
+  }
+  await pinStore.unpin(thread.id);
+  repository?.setPinnedThreadIds(pinStore.getPinnedThreadIds());
+  if (repository) {
+    provider.setSnapshot(repository.snapshot());
+  }
+}
+
+async function pruneLoadedPins(pinStore: PinStore, repository: ThreadRepository): Promise<void> {
+  const snapshot = repository.snapshot();
+  if (snapshot.active.nextCursor || snapshot.archive.nextCursor) {
+    return;
+  }
+  await pinStore.pruneExistingThreadIds([
+    ...snapshot.pinned.threads.map((thread) => thread.id),
+    ...snapshot.active.threads.map((thread) => thread.id)
+  ]);
 }
 
 function showNotImplemented(action: string): Thenable<void> {

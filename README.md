@@ -4,7 +4,7 @@ Codex Thread Manager is a VS Code extension for organizing Codex threads associa
 
 ## Current status
 
-This repository currently contains the Phase 3 read-only thread list work from `PLAN.md`:
+This repository currently contains the Phase 4 pinning work from `PLAN.md`:
 
 - A VS Code workspace extension that contributes a Codex activity-bar container.
 - A `Threads` tree view that renders workspace-scoped recent and archived Codex thread rows with status icons, relative recency, and tooltips.
@@ -12,10 +12,11 @@ This repository currently contains the Phase 3 read-only thread list work from `
 - A version-pinned Codex App Server TypeScript protocol snapshot (generated with Codex CLI `0.144.2`).
 - A local stdio JSONL client with initialization, request timeouts, diagnostics, and clean shutdown.
 - Read-only active and archived `thread/list` loading scoped to the open workspace folders, including page cursors and manual “Load more…” rows.
+- Workspace-scoped pin and unpin commands backed by VS Code `workspaceState`, with pinned threads promoted into their own group.
 - Automatic native CLI and official npm shim resolution without invoking a shell.
 - Runtime/generated CLI version diagnostics that validate required protocol behavior instead of requiring an exact version match.
 
-Phase 3 remains read-only: it displays thread metadata and pagination only, and does not mutate Codex data. Pinning starts in Phase 4; rename/archive operations start in Phase 5.
+Phase 4 still does not mutate Codex data: pinning is local VS Code workspace state only. Rename/archive operations start in Phase 5.
 
 ## Development
 
