@@ -41,6 +41,7 @@ export class ThreadRepository {
   private archiveCursor: string | null = null;
   private archiveLoaded = false;
   private pinnedThreadIds: readonly string[] = [];
+  private readonly pendingThreadIds = new Set<string>();
 
   public constructor(private readonly client: AppServerClient) {}
 
@@ -58,6 +59,10 @@ export class ThreadRepository {
       active: { threads: this.activeThreads.filter((thread) => !pinnedIds.has(thread.id)), nextCursor: this.activeCursor, loaded: true },
       archive: { threads: this.archivedThreads, nextCursor: this.archiveCursor, loaded: this.archiveLoaded }
     };
+  }
+
+  public isOperationPending(threadId: string): boolean {
+    return this.pendingThreadIds.has(threadId);
   }
 
   public reset(): void {
@@ -104,6 +109,77 @@ export class ThreadRepository {
     return this.snapshot().archive;
   }
 
+  public async renameThread(threadId: string, name: string): Promise<void> {
+    await this.runThreadOperation(threadId, async () => {
+      await this.client.renameThread({ threadId, name });
+      this.activeThreads = this.activeThreads.map((thread) => thread.id === threadId ? updateThreadTitle(thread, name) : thread);
+      this.archivedThreads = this.archivedThreads.map((thread) => thread.id === threadId ? updateThreadTitle(thread, name) : thread);
+    });
+  }
+
+  public async archiveThread(threadId: string): Promise<void> {
+    await this.runThreadOperation(threadId, async () => {
+      await this.client.archiveThread({ threadId });
+      const thread = this.activeThreads.find((candidate) => candidate.id === threadId);
+      this.activeThreads = this.activeThreads.filter((candidate) => candidate.id !== threadId);
+      if (thread && this.archiveLoaded && !this.archivedThreads.some((candidate) => candidate.id === threadId)) {
+        this.archivedThreads = [markArchived(thread), ...this.archivedThreads];
+      }
+    });
+  }
+
+  public async unarchiveThread(threadId: string): Promise<void> {
+    await this.runThreadOperation(threadId, async () => {
+      await this.client.unarchiveThread({ threadId });
+      const thread = this.archivedThreads.find((candidate) => candidate.id === threadId);
+      this.archivedThreads = this.archivedThreads.filter((candidate) => candidate.id !== threadId);
+      if (thread && !this.activeThreads.some((candidate) => candidate.id === threadId)) {
+        this.activeThreads = applyPinState([markActive(thread), ...this.activeThreads], this.pinnedThreadIds, false);
+      }
+    });
+  }
+
+  public handleThreadNotification(method: string, params: unknown): boolean {
+    if (!isThreadIdParams(params)) {
+      return false;
+    }
+    if (method === 'thread/archived') {
+      const before = this.activeThreads.length + this.archivedThreads.length;
+      const thread = this.activeThreads.find((candidate) => candidate.id === params.threadId);
+      this.activeThreads = this.activeThreads.filter((candidate) => candidate.id !== params.threadId);
+      if (thread && this.archiveLoaded && !this.archivedThreads.some((candidate) => candidate.id === params.threadId)) {
+        this.archivedThreads = [markArchived(thread), ...this.archivedThreads];
+      }
+      return before !== this.activeThreads.length + this.archivedThreads.length || Boolean(thread);
+    }
+    if (method === 'thread/unarchived') {
+      const thread = this.archivedThreads.find((candidate) => candidate.id === params.threadId);
+      this.archivedThreads = this.archivedThreads.filter((candidate) => candidate.id !== params.threadId);
+      if (thread && !this.activeThreads.some((candidate) => candidate.id === params.threadId)) {
+        this.activeThreads = applyPinState([markActive(thread), ...this.activeThreads], this.pinnedThreadIds, false);
+      }
+      return Boolean(thread);
+    }
+    if (method === 'thread/name/updated' && isThreadNameUpdatedParams(params)) {
+      this.activeThreads = this.activeThreads.map((thread) => thread.id === params.threadId ? updateThreadTitle(thread, params.name) : thread);
+      this.archivedThreads = this.archivedThreads.map((thread) => thread.id === params.threadId ? updateThreadTitle(thread, params.name) : thread);
+      return true;
+    }
+    return method === 'thread/status/changed';
+  }
+
+  private async runThreadOperation(threadId: string, operation: () => Promise<void>): Promise<void> {
+    if (this.pendingThreadIds.has(threadId)) {
+      throw new Error('An operation is already running for this thread.');
+    }
+    this.pendingThreadIds.add(threadId);
+    try {
+      await operation();
+    } finally {
+      this.pendingThreadIds.delete(threadId);
+    }
+  }
+
   private list(workspaceFolders: readonly vscode.WorkspaceFolder[], pageSize: number, archived: boolean, cursor: string | null) {
     const params: ThreadListParams = {
       limit: pageSize,
@@ -115,6 +191,34 @@ export class ThreadRepository {
     };
     return this.client.listThreads(params);
   }
+}
+
+function updateThreadTitle(thread: ThreadDisplayModel, title: string): ThreadDisplayModel {
+  const tooltip = new vscode.MarkdownString(undefined, true);
+  tooltip.isTrusted = false;
+  tooltip.appendMarkdown(`**${escapeMarkdown(title)}**\n\n`);
+  tooltip.appendMarkdown(`- Workspace: \`${escapeMarkdown(thread.cwd)}\`\n`);
+  tooltip.appendMarkdown(`- Created: ${thread.createdAt.toLocaleString()}\n`);
+  tooltip.appendMarkdown(`- Updated: ${thread.updatedAt.toLocaleString()}\n`);
+  tooltip.appendMarkdown(`- Source: ${escapeMarkdown(thread.sourceLabel)}\n`);
+  tooltip.appendMarkdown(`- Thread ID: \`${escapeMarkdown(thread.id)}\``);
+  return { ...thread, title, tooltip };
+}
+
+function markArchived(thread: ThreadDisplayModel): ThreadDisplayModel {
+  return { ...thread, archived: true, pinned: false, iconId: 'archive' };
+}
+
+function markActive(thread: ThreadDisplayModel): ThreadDisplayModel {
+  return { ...thread, archived: false, iconId: thread.pinned ? 'pinned' : 'comment-discussion' };
+}
+
+function isThreadIdParams(value: unknown): value is { threadId: string } {
+  return typeof value === 'object' && value !== null && 'threadId' in value && typeof (value as { threadId?: unknown }).threadId === 'string';
+}
+
+function isThreadNameUpdatedParams(value: unknown): value is { threadId: string; name: string } {
+  return isThreadIdParams(value) && 'name' in value && typeof (value as { name?: unknown }).name === 'string';
 }
 
 function toDisplayModel(thread: Thread, archived: boolean): ThreadDisplayModel {
