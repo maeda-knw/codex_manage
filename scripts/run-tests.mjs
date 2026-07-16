@@ -1,17 +1,24 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { build } from 'esbuild';
 
 const outputDirectory = await mkdtemp(join(tmpdir(), 'codex-thread-manager-tests-'));
+const entryPoints = [
+  'test/unit/codexExecutableResolver.test.mjs',
+  'test/unit/jsonlTransport.test.ts',
+  'test/unit/pinStore.test.ts',
+  'test/unit/protocolGuards.test.ts',
+  'test/unit/threadRepository.test.ts',
+  'test/unit/threadTreeProvider.test.ts',
+  'test/integration/appServerCompatibility.test.ts',
+  'test/integration/appServerOperations.test.ts',
+  'test/integration/realCli.test.ts'
+];
 try {
   await build({
-    entryPoints: [
-      'test/unit/codexExecutableResolver.test.mjs',
-      'test/integration/appServerCompatibility.test.ts',
-      'test/integration/realCli.test.ts'
-    ],
+    entryPoints,
     bundle: true,
     entryNames: '[dir]/[name]',
     format: 'cjs',
@@ -19,13 +26,21 @@ try {
     platform: 'node',
     target: 'node20',
     outdir: outputDirectory,
+    plugins: [{
+      name: 'vscode-test-double',
+      setup(buildContext) {
+        buildContext.onResolve({ filter: /^vscode$/ }, () => ({
+          path: resolve('test/support/vscode.ts')
+        }));
+      }
+    }],
     logLevel: 'silent'
   });
   run(process.execPath, [
     '--test',
-    join(outputDirectory, 'unit', 'codexExecutableResolver.test.js'),
-    join(outputDirectory, 'integration', 'appServerCompatibility.test.js'),
-    join(outputDirectory, 'integration', 'realCli.test.js')
+    ...entryPoints.map((entryPoint) =>
+      join(outputDirectory, entryPoint.replace(/^test[\\/]/u, '').replace(/\.(?:mjs|ts)$/u, '.js'))
+    )
   ]);
 } finally {
   await rm(outputDirectory, { recursive: true, force: true });

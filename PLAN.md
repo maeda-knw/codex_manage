@@ -1,7 +1,7 @@
 # Codex Thread Manager for VS Code 実装計画書
 
 - 作成日: 2026-07-14
-- 状態: Phase 5 完了（名前変更とアーカイブ）
+- 状態: Phase 6 完了（品質保証と非公開 VSIX 配布準備）
 - 仮称: `Codex Thread Manager`
 - 調査環境: Windows / Codex CLI `0.142.3`
 
@@ -331,6 +331,17 @@ Phase 2 の実機確認で、通常の PowerShell と VS Code Extension Host で
 
 完了条件: 後述の受け入れ条件を満たし、VSIX から再現可能に動作する。
 
+実装結果（2026-07-16）:
+
+- JSONL transport、境界検証、CLI resolver、PinStore、Thread Repository、Tree View の単体テストを追加した。
+- 偽 App Server による rename/archive/unarchive、通知、タイムアウト、切断、stderr の秘匿化、未対応 Server Request の統合テストを追加した。
+- VS Code `1.92.2` を使った Extension Host テストを追加し、View、Command、Menu、Configuration の登録を確認するようにした。
+- Windows の Extension Host でテストを実行し、GitHub Actions では Windows、macOS、Linux の品質検証、VSIX 生成、Extension Host テストを行うマトリクスを追加した。
+- VSIX の非公開インストール手順、要件、制約、Remote/WSL の注意点、トラブルシュート、手動受け入れチェックリストを文書化した。
+- `thread/name/updated` の生成型フィールドとの不一致と、`thread/status/changed` が表示モデルへ反映されない不具合を修正した。
+- `esbuild` と `@vscode/vsce` を監査済みの修正版へ更新し、`npm audit` 0 件を確認した。
+- Marketplace 公開は予定していないため、公開用 publisher、掲載文、公開操作の整備は省略した。
+
 ## 8. テスト計画
 
 ### 8.1 単体テスト
@@ -370,19 +381,19 @@ Phase 2 の実機確認で、通常の PowerShell と VS Code Extension Host で
 
 ## 9. 受け入れ条件
 
-- [ ] 現在の VS Code ワークスペースに完全一致する Codex スレッドだけが表示される
-- [ ] 名前がないスレッドもプレビューまたは代替名で識別できる
-- [ ] ピン留めしたスレッドが先頭グループへ移動し、ウィンドウ再読み込み後も維持される
-- [ ] スレッド名の変更が Codex 側へ保存され、一覧へ反映される
-- [ ] アーカイブしたスレッドがアクティブ一覧から消え、アーカイブ一覧へ移動する
-- [ ] アーカイブ直後に Undo でき、アーカイブ一覧からも復元できる
-- [ ] 失敗時にデータを失わず、原因と次の操作がユーザーに示される
-- [ ] `~/.codex` の内部ファイルを直接変更しない
-- [ ] 拡張終了時に App Server プロセスと全 Disposable が残らない
-- [ ] 公式 Codex VS Code 拡張のバージョン付き内部パスへ依存せず、標準的な CLI 配置を解決できる
-- [ ] 型生成元と実行時の CLI バージョン、および互換性判定結果を診断できる
-- [ ] CLI バージョンが完全一致しなくても、必須プロトコルが互換なら利用できる
-- [ ] 単体テスト、統合テスト、型チェック、lint、bundle、VSIX 作成が成功する
+- [x] 現在の VS Code ワークスペースに完全一致する Codex スレッドだけが表示される
+- [x] 名前がないスレッドもプレビューまたは代替名で識別できる
+- [x] ピン留めしたスレッドが先頭グループへ移動し、ウィンドウ再読み込み後も維持される
+- [x] スレッド名の変更が Codex 側へ保存され、一覧へ反映される
+- [x] アーカイブしたスレッドがアクティブ一覧から消え、アーカイブ一覧へ移動する
+- [x] アーカイブ直後に Undo でき、アーカイブ一覧からも復元できる
+- [x] 失敗時にデータを失わず、原因と次の操作がユーザーに示される
+- [x] `~/.codex` の内部ファイルを直接変更しない
+- [x] 拡張終了時に App Server プロセスと全 Disposable が残らない
+- [x] 公式 Codex VS Code 拡張のバージョン付き内部パスへ依存せず、標準的な CLI 配置を解決できる
+- [x] 型生成元と実行時の CLI バージョン、および互換性判定結果を診断できる
+- [x] CLI バージョンが完全一致しなくても、必須プロトコルが互換なら利用できる
+- [x] 単体テスト、統合テスト、型チェック、lint、bundle、VSIX 作成が成功する
 
 ## 10. 主なリスクと対策
 

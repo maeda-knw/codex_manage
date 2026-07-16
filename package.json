@@ -136,8 +136,11 @@
     "build": "npm run typecheck && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
     "test": "node scripts/run-tests.mjs",
+    "test:vscode": "npm run build && node scripts/run-vscode-tests.mjs",
+    "verify": "npm run test && npm run typecheck && npm run typecheck:test && npm run lint && npm run build",
     "generate:protocol": "node scripts/generate-protocol.mjs",
     "package": "npm run build && vsce package --no-dependencies",
     "vscode:prepublish": "npm run build"
@@ -148,8 +151,9 @@
     "@types/vscode": "^1.92.0",
     "@typescript-eslint/eslint-plugin": "^7.16.1",
     "@typescript-eslint/parser": "^7.16.1",
-    "@vscode/vsce": "^2.32.0",
-    "esbuild": "^0.23.0",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.1",
     "eslint": "^8.57.0",
     "typescript": "^5.5.4"
   }

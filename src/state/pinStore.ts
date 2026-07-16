@@ -1,9 +1,9 @@
-import * as vscode from 'vscode';
+import type { Memento } from 'vscode';
 
 const PINNED_THREAD_IDS_KEY = 'codexThreadManager.pinnedThreadIds';
 
 export class PinStore {
-  public constructor(private readonly state: vscode.Memento) {}
+  public constructor(private readonly state: Memento) {}
 
   public getPinnedThreadIds(): readonly string[] {
     const value = this.state.get<unknown>(PINNED_THREAD_IDS_KEY, []);
