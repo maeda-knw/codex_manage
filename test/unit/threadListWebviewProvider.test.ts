@@ -284,10 +284,11 @@ test('waits for the first loaded snapshot before restoring a conversation', asyn
   t.after(() => provider.dispose());
   const view = new FakeWebviewView();
   resolveProvider(provider, view, {
-    version: 1,
+    version: 2,
     screen: 'conversation',
     selectedThreadId: 'thread-1',
-    listScrollTop: 10
+    listScrollTop: 10,
+    expandedGroups: { pinned: false, active: true, archive: true }
   });
 
   view.webview.fire({ type: 'threads/ready' });
@@ -382,7 +383,7 @@ test('uses an explicit command map and safely restores only known thread state',
   await flushPromises();
   assert.deepEqual(reads, ['thread-1']);
 
-  for (const action of ['refresh', 'openSettings', 'loadMoreActive', 'loadMoreArchive']) {
+  for (const action of ['loadMoreActive', 'loadMoreArchive']) {
     view.webview.fire({ type: 'threads/action', action });
   }
   for (const action of ['pin', 'unpin', 'rename', 'archive', 'unarchive']) {
@@ -391,8 +392,6 @@ test('uses an explicit command map and safely restores only known thread state',
   view.webview.fire({ type: 'threads/action', action: 'pin', threadId: 'missing-thread' });
   await flushPromises();
   assert.deepEqual(commandCalls, [
-    ['codexThreadManager.refresh'],
-    ['codexThreadManager.openSettings'],
     ['codexThreadManager.loadMoreActive'],
     ['codexThreadManager.loadMoreArchive'],
     ['codexThreadManager.pin', 'thread-1'],

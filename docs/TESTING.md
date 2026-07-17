@@ -37,12 +37,17 @@ The GitHub Actions workflow runs quality, packaging, and Extension Host checks o
 - Use Undo immediately after archive.
 - Restore a thread from Archive.
 - Trigger or observe a running/error status change and confirm the icon and label update.
-- Select a thread and confirm the same Codex sidebar shows the matching title, stored user/Codex messages, turn state, and basic work cards without opening an editor tab.
+- Confirm the native **Threads** title contains the only refresh/settings controls and the Webview does not repeat its own title or text buttons.
+- Collapse Pinned or Recent threads, expand Archive, navigate into a conversation and back, then reload the window and confirm the group visibility is restored.
+- Select the title, description, and blank body area of a thread card and confirm each opens the matching conversation without opening an editor tab.
+- Hover and keyboard-focus active cards to reveal Pin/Unpin, Rename, and Archive icons; confirm archived cards show only Restore and touch-style input does not hide the actions.
+- Select each icon and the gaps around the icon strip and confirm none opens a conversation or triggers a neighboring card action.
 - Use **Back** and confirm the loaded list, scroll position, and selected-row focus are restored where possible.
 - Open two different threads in sequence and confirm their histories do not mix.
 - Use **Reload** and confirm the sidebar history refreshes without creating a new turn or changing Codex data.
 - Run **Developer: Reload Window** with a sidebar conversation open and confirm the same thread history is restored after the list loads.
-- Use Arrow Up/Down, Home/End, Tab, and the ellipsis menu (**Manage thread**) to confirm visible focus and keyboard access to every list operation.
+- Use Arrow Up/Down, Home/End, Tab, Shift+Tab, the collapsible group headings, and every inline action to confirm visible focus and keyboard access; arrow navigation must skip collapsed groups, and list updates must preserve the active heading or card control.
+- Pin into a collapsed Pinned group, archive into a collapsed Archive group, restore into Recent, and confirm focus moves to the corresponding action, card, or destination group heading without disappearing.
 - Confirm message text containing HTML-like text is displayed literally and does not create executable markup.
 - Confirm partial stored history shows a summary notice rather than pretending all work items are present.
 - Configure a missing CLI path and confirm Settings/Retry guidance appears.
