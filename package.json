@@ -104,33 +104,6 @@
           "when": "view == codexThreadManager.threads",
           "group": "navigation@2"
         }
-      ],
-      "view/item/context": [
-        {
-          "command": "codexThreadManager.pin",
-          "when": "view == codexThreadManager.threads && viewItem == codexThreadManager.thread.active.unpinned",
-          "group": "inline@1"
-        },
-        {
-          "command": "codexThreadManager.unpin",
-          "when": "view == codexThreadManager.threads && viewItem == codexThreadManager.thread.active.pinned",
-          "group": "inline@1"
-        },
-        {
-          "command": "codexThreadManager.rename",
-          "when": "view == codexThreadManager.threads && (viewItem == codexThreadManager.thread.active.unpinned || viewItem == codexThreadManager.thread.active.pinned)",
-          "group": "2_edit@1"
-        },
-        {
-          "command": "codexThreadManager.archive",
-          "when": "view == codexThreadManager.threads && (viewItem == codexThreadManager.thread.active.unpinned || viewItem == codexThreadManager.thread.active.pinned)",
-          "group": "3_manage@1"
-        },
-        {
-          "command": "codexThreadManager.unarchive",
-          "when": "view == codexThreadManager.threads && viewItem == codexThreadManager.thread.archived",
-          "group": "3_manage@1"
-        }
       ]
     },
     "configuration": {
@@ -160,9 +133,10 @@
     "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
     "test": "node scripts/run-tests.mjs",
     "test:vscode": "npm run build && node scripts/run-vscode-tests.mjs",
-    "verify": "npm run test && npm run typecheck && npm run typecheck:webview && npm run typecheck:test && npm run lint && npm run build",
+    "verify:package-files": "node scripts/verify-package-contents.mjs",
+    "verify": "npm run test && npm run typecheck && npm run typecheck:webview && npm run typecheck:test && npm run lint && npm run build && npm run verify:package-files",
     "generate:protocol": "node scripts/generate-protocol.mjs",
-    "package": "npm run build && vsce package --no-dependencies",
+    "package": "npm run build && npm run verify:package-files && vsce package --no-dependencies",
     "vscode:prepublish": "npm run build"
   },
   "devDependencies": {

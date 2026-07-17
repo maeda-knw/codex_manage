@@ -99,3 +99,9 @@ export const window: {
   },
   showWarningMessage: async () => undefined
 };
+
+export const commands: {
+  executeCommand: (...args: unknown[]) => Promise<unknown>;
+} = {
+  executeCommand: async () => undefined
+};

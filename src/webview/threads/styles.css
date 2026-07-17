@@ -1,0 +1,216 @@
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  padding: 8px 10px 20px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-sideBar-background);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+button {
+  font: inherit;
+}
+
+.list-header,
+.conversation-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 6px 0 10px;
+  background: var(--vscode-sideBar-background);
+  border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
+}
+
+.list-header {
+  justify-content: space-between;
+}
+
+.list-header-actions,
+.thread-menu-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+button:not(.thread-title) {
+  padding: 3px 7px;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+button:not(.thread-title):hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+button:focus-visible,
+summary:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.thread-group h2 {
+  margin: 18px 0 7px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.thread-card {
+  position: relative;
+  box-sizing: border-box;
+  min-height: 48px;
+  margin: 5px 0;
+  padding: 6px 38px 6px 8px;
+  background: var(--vscode-sideBar-background);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 5px;
+}
+
+.thread-card:focus-within {
+  border-color: var(--vscode-focusBorder);
+}
+
+.thread-title {
+  display: block;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 0;
+  font-weight: 600;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.thread-meta {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thread-menu {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 3;
+}
+
+.thread-menu summary {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.thread-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.thread-menu summary:hover,
+.thread-menu[open] summary {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.thread-menu-actions {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  box-sizing: border-box;
+  width: 112px;
+  max-width: calc(100vw - 24px);
+  padding: 5px;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  background: var(--vscode-menu-background, var(--vscode-sideBar-background));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+  border-radius: 4px;
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+}
+
+.thread-menu-actions button:not(.thread-title) {
+  width: 100%;
+  text-align: left;
+}
+
+.group-empty,
+.empty-state {
+  color: var(--vscode-descriptionForeground);
+}
+
+.load-more {
+  margin-top: 6px;
+}
+
+.conversation-heading {
+  min-width: 0;
+  flex: 1;
+}
+
+.conversation-heading h1 {
+  margin: 0;
+  overflow: hidden;
+  font-size: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-meta {
+  margin: 3px 0 0;
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-view .notice {
+  margin: 12px 0;
+}
+
+.conversation-view .turn {
+  margin: 18px 0;
+}
+
+.conversation-view .message {
+  max-width: 100%;
+  padding: 10px;
+}
+
+.conversation-view .activity-summary {
+  padding: 8px;
+}
+
+.conversation-view .activity-detail {
+  max-height: 240px;
+  padding: 8px;
+}
+
+@media (forced-colors: active) {
+  .thread-card,
+  button:not(.thread-title) {
+    border-color: CanvasText;
+  }
+}

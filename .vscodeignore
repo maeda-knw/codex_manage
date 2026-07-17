@@ -7,4 +7,6 @@
 !dist/extension.js
 !dist/webview/conversation.js
 !dist/webview/conversation.css
+!dist/webview/threads.js
+!dist/webview/threads.css
 !resources/codex.svg

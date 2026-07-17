@@ -14,7 +14,6 @@ let activeClient: AppServerClient | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Codex Thread Manager');
-  const provider = new ThreadListWebviewProvider(context.extensionUri);
   const pinStore = new PinStore(context.workspaceState);
   let probeGeneration = 0;
   let repository: ThreadRepository | undefined;
@@ -56,6 +55,17 @@ export function activate(context: vscode.ExtensionContext): void {
     provider.setSnapshot(repository.snapshot());
     return activeClient;
   };
+
+  const readThread = async (threadId: string) => {
+    const client = activeClient ?? replaceClient();
+    return (await client.readThread({ threadId, includeTurns: true })).thread;
+  };
+
+  const provider = new ThreadListWebviewProvider({
+    extensionUri: context.extensionUri,
+    readThread,
+    logger: output
+  });
 
   const refreshThreads = async (notifyOnError: boolean): Promise<void> => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -140,10 +150,7 @@ export function activate(context: vscode.ExtensionContext): void {
   repository.setPinnedThreadIds(pinStore.getPinnedThreadIds());
   const conversationPanels = new ConversationPanelManager({
     extensionUri: context.extensionUri,
-    readThread: async (threadId) => {
-      const client = activeClient ?? replaceClient();
-      return (await client.readThread({ threadId, includeTurns: true })).thread;
-    },
+    readThread,
     logger: output
   });
 
