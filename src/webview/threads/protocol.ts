@@ -1,8 +1,6 @@
 import type { ConversationViewModel } from '../../conversation/conversationViewModel';
 
 export type ThreadListAction =
-  | 'refresh'
-  | 'openSettings'
   | 'loadMoreActive'
   | 'loadMoreArchive'
   | 'pin'
@@ -30,6 +28,14 @@ export interface ThreadListSnapshotViewModel {
   readonly pinned: ThreadListPageViewModel;
   readonly active: ThreadListPageViewModel;
   readonly archive: ThreadListPageViewModel;
+}
+
+export type ThreadListGroupId = 'pinned' | 'active' | 'archive';
+
+export interface ThreadListExpandedGroups {
+  readonly pinned: boolean;
+  readonly active: boolean;
+  readonly archive: boolean;
 }
 
 export type ThreadListConnectionStatus =
@@ -74,6 +80,14 @@ export type ThreadsHostToWebviewMessage =
   };
 
 export interface ThreadsWebviewState {
+  readonly version: 2;
+  readonly screen: 'list' | 'conversation';
+  readonly selectedThreadId: string | null;
+  readonly listScrollTop: number;
+  readonly expandedGroups: ThreadListExpandedGroups;
+}
+
+interface LegacyThreadsWebviewState {
   readonly version: 1;
   readonly screen: 'list' | 'conversation';
   readonly selectedThreadId: string | null;
@@ -81,8 +95,6 @@ export interface ThreadsWebviewState {
 }
 
 const ACTIONS: readonly ThreadListAction[] = [
-  'refresh',
-  'openSettings',
   'loadMoreActive',
   'loadMoreArchive',
   'pin',
@@ -146,7 +158,53 @@ export function isThreadsHostMessage(value: unknown): value is ThreadsHostToWebv
 export function isThreadsWebviewState(value: unknown): value is ThreadsWebviewState {
   return (
     isObject(value) &&
-    value.version === 1 &&
+    value.version === 2 &&
+    hasValidNavigationState(value) &&
+    isObject(value.expandedGroups) &&
+    typeof value.expandedGroups.pinned === 'boolean' &&
+    typeof value.expandedGroups.active === 'boolean' &&
+    typeof value.expandedGroups.archive === 'boolean'
+  );
+}
+
+export function restoreThreadsWebviewState(value: unknown): ThreadsWebviewState {
+  if (isThreadsWebviewState(value)) {
+    return {
+      version: 2,
+      screen: value.screen,
+      selectedThreadId: value.selectedThreadId,
+      listScrollTop: value.listScrollTop,
+      expandedGroups: {
+        pinned: value.expandedGroups.pinned,
+        active: value.expandedGroups.active,
+        archive: value.expandedGroups.archive
+      }
+    };
+  }
+  if (isLegacyThreadsWebviewState(value)) {
+    return {
+      version: 2,
+      screen: value.screen,
+      selectedThreadId: value.selectedThreadId,
+      listScrollTop: value.listScrollTop,
+      expandedGroups: defaultExpandedGroups()
+    };
+  }
+  return {
+    version: 2,
+    screen: 'list',
+    selectedThreadId: null,
+    listScrollTop: 0,
+    expandedGroups: defaultExpandedGroups()
+  };
+}
+
+function isLegacyThreadsWebviewState(value: unknown): value is LegacyThreadsWebviewState {
+  return isObject(value) && value.version === 1 && hasValidNavigationState(value);
+}
+
+function hasValidNavigationState(value: Record<string, unknown>): boolean {
+  return (
     (value.screen === 'list' || value.screen === 'conversation') &&
     (value.selectedThreadId === null || isNonEmptyString(value.selectedThreadId)) &&
     typeof value.listScrollTop === 'number' &&
@@ -154,6 +212,10 @@ export function isThreadsWebviewState(value: unknown): value is ThreadsWebviewSt
     value.listScrollTop >= 0 &&
     (value.screen !== 'conversation' || isNonEmptyString(value.selectedThreadId))
   );
+}
+
+function defaultExpandedGroups(): ThreadListExpandedGroups {
+  return { pinned: true, active: true, archive: false };
 }
 
 function isNonEmptyString(value: unknown): value is string {

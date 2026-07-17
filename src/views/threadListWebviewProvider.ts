@@ -7,7 +7,7 @@ import { conversationErrorMessage } from '../conversation/conversationPanelManag
 import { toConversationViewModel } from '../conversation/conversationViewModel';
 import {
   isThreadsWebviewMessage,
-  isThreadsWebviewState,
+  restoreThreadsWebviewState,
   type ThreadListAction,
   type ThreadListPageViewModel,
   type ThreadListSnapshotViewModel,
@@ -16,8 +16,6 @@ import {
 import type { ConnectionStatus } from './threadTreeProvider';
 
 const ACTION_COMMANDS: Readonly<Record<ThreadListAction, string>> = {
-  refresh: 'codexThreadManager.refresh',
-  openSettings: 'codexThreadManager.openSettings',
   loadMoreActive: 'codexThreadManager.loadMoreActive',
   loadMoreArchive: 'codexThreadManager.loadMoreArchive',
   pin: 'codexThreadManager.pin',
@@ -72,8 +70,9 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     };
     view.webview.html = this.html(view.webview);
 
-    this.pendingRestoreThreadId = isThreadsWebviewState(context.state) && context.state.screen === 'conversation'
-      ? context.state.selectedThreadId ?? undefined
+    const restoredState = restoreThreadsWebviewState(context.state);
+    this.pendingRestoreThreadId = restoredState.screen === 'conversation'
+      ? restoredState.selectedThreadId ?? undefined
       : undefined;
 
     this.viewDisposables.push(

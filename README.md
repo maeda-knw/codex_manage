@@ -14,6 +14,7 @@ The MVP is packaged for private VSIX installation. Marketplace publication is no
 - Updates names, archive state, and execution status from App Server notifications.
 - Opens a selected thread's read-only conversation in the same Codex sidebar, including stored user/Codex messages, turn state, and summarized work cards.
 - Preserves the list position when navigating back and restores the selected conversation by re-reading history after a VS Code window reload.
+- Keeps Pinned and Recent threads expanded by default, keeps Archive collapsed, and remembers each group's visibility.
 - Reports CLI resolution, runtime/generated protocol versions, and compatibility diagnostics in the `Codex Thread Manager` Output Channel.
 
 Pinning is stored in VS Code `workspaceState`. It is not synchronized with Codex, other workspaces, or other machines.
@@ -51,12 +52,13 @@ Reload VS Code after installation.
 
 1. Open a workspace folder.
 2. Open the Codex activity-bar view.
-3. Use the gear action beside **Refresh Threads** to open the extension settings.
-4. Use **Refresh Threads** if the list has not loaded.
+3. Use the gear icon beside the refresh icon in the native **Threads** view title to open the extension settings.
+4. Use the refresh icon if the list has not loaded.
 5. Select a thread row to open its stored conversation history in the same Codex sidebar.
-6. Open the row's ellipsis menu (**Manage thread**) to pin, rename, archive, or restore it.
-7. Use **Reload** in the sidebar conversation header to fetch its latest stored state, then **Back** to return to the list.
-8. Open **View: Toggle Output** and select `Codex Thread Manager` for connection diagnostics.
+6. Select a group heading to expand or collapse Pinned, Recent threads, or Archive.
+7. Open the row's ellipsis menu (**Manage thread**) to pin, rename, archive, or restore it.
+8. Use **Reload** in the sidebar conversation header to fetch its latest stored state, then **Back** to return to the list.
+9. Open **View: Toggle Output** and select `Codex Thread Manager` for connection diagnostics.
 
 Only threads whose `cwd` exactly matches one of the open workspace folder paths are shown. Threads started in a nested subdirectory are not included in this MVP.
 

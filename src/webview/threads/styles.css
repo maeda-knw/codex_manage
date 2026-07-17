@@ -15,7 +15,6 @@ button {
   font: inherit;
 }
 
-.list-header,
 .conversation-header {
   display: flex;
   align-items: center;
@@ -28,11 +27,6 @@ button {
   border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
 }
 
-.list-header {
-  justify-content: space-between;
-}
-
-.list-header-actions,
 .thread-menu-actions {
   display: flex;
   flex-wrap: wrap;
@@ -58,12 +52,55 @@ summary:focus-visible {
   outline-offset: 2px;
 }
 
-.thread-group h2 {
-  margin: 18px 0 7px;
+.thread-group {
+  margin-top: 14px;
+}
+
+.thread-group:first-child {
+  margin-top: 2px;
+}
+
+.thread-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 2px;
   color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.thread-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.thread-group > summary::before {
+  content: '›';
+  display: inline-block;
+  font-size: 1rem;
+  line-height: 1;
+  transform: rotate(0deg);
+}
+
+.thread-group[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.thread-group > summary:hover {
+  background: var(--vscode-list-hoverBackground);
+  border-radius: 3px;
+}
+
+.thread-group > summary h2 {
+  margin: 0;
   font-size: 0.82rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.thread-group-content {
+  margin-top: 3px;
 }
 
 .thread-card {

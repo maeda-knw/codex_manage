@@ -4,6 +4,7 @@
 
 - Added vNext Phase A read-only conversation rendering backed by `thread/read(includeTurns: true)`.
 - Added vNext Phase A.5 list/conversation navigation inside one Codex sidebar Webview View, including Back, reload, scroll/selection restoration, and stale-read protection.
+- Added vNext Phase A.6 list polish: native view-title actions are no longer duplicated, thread groups are collapsible, and their visibility survives navigation and reloads.
 - Added typed, CSP-protected Webview rendering for stored user/Codex messages, turn state, and summarized work cards.
 - Excluded raw reasoning content, command output, file diffs, tool payloads, delegated prompts, and hook fragments from the Webview model.
 - Added unit and fake App Server coverage for conversation mapping, sidebar transitions/restoration, operation boundaries, panel races, and CSP.

@@ -9,8 +9,9 @@ import {
 } from '../conversation/render';
 import {
   isThreadsHostMessage,
-  isThreadsWebviewState,
+  restoreThreadsWebviewState,
   type ThreadListAction,
+  type ThreadListGroupId,
   type ThreadListItemViewModel,
   type ThreadListPageViewModel,
   type ThreadsHostToWebviewMessage,
@@ -27,10 +28,7 @@ declare function acquireVsCodeApi<T>(): VsCodeApi<T>;
 
 const vscode = acquireVsCodeApi<ThreadsWebviewState>();
 const app = requiredElement<HTMLElement>('app');
-const restoredState = vscode.getState();
-let persistedState: ThreadsWebviewState = isThreadsWebviewState(restoredState)
-  ? restoredState
-  : { version: 1, screen: 'list', selectedThreadId: null, listScrollTop: 0 };
+let persistedState = restoreThreadsWebviewState(vscode.getState());
 let listState: Extract<ThreadsHostToWebviewMessage, { type: 'threads/listState' }> | undefined;
 let screen: 'list' | 'conversation' = persistedState.screen;
 let conversationTarget: ConversationRenderTarget | undefined;
@@ -89,7 +87,8 @@ app.addEventListener('keydown', (event) => {
   if (!current) {
     return;
   }
-  const buttons = [...app.querySelectorAll<HTMLButtonElement>('[data-action="open"]')];
+  const buttons = [...app.querySelectorAll<HTMLButtonElement>('[data-action="open"]')]
+    .filter(isVisibleThreadButton);
   const currentIndex = buttons.indexOf(current);
   const nextIndex = event.key === 'Home'
     ? 0
@@ -138,6 +137,7 @@ function handleHostMessage(message: ThreadsHostToWebviewMessage): void {
 }
 
 function renderList(state: Extract<ThreadsHostToWebviewMessage, { type: 'threads/listState' }>): void {
+  const focusedGroupId = focusedThreadGroupId();
   screen = 'list';
   conversationTarget = undefined;
   conversationThreadId = undefined;
@@ -152,47 +152,49 @@ function renderList(state: Extract<ThreadsHostToWebviewMessage, { type: 'threads
     return;
   }
 
-  const header = document.createElement('header');
-  header.className = 'list-header';
-  const title = document.createElement('strong');
-  title.textContent = 'Codex threads';
-  const actions = document.createElement('div');
-  actions.className = 'list-header-actions';
-  actions.append(
-    actionButton('Refresh', 'refresh'),
-    actionButton('Settings', 'openSettings')
-  );
-  header.append(title, actions);
-  app.append(header);
-
-  appendGroup('Pinned', state.snapshot.pinned);
-  appendGroup('Recent threads', state.snapshot.active, 'loadMoreActive');
-  appendGroup('Archive', state.snapshot.archive, 'loadMoreArchive');
+  appendGroup('pinned', 'Pinned', state.snapshot.pinned);
+  appendGroup('active', 'Recent threads', state.snapshot.active, 'loadMoreActive');
+  appendGroup('archive', 'Archive', state.snapshot.archive, 'loadMoreArchive');
 
   const scrollTop = persistedState.listScrollTop;
   const selectedThreadId = persistedState.selectedThreadId;
   requestAnimationFrame(() => {
     window.scrollTo({ top: scrollTop });
-    if (selectedThreadId) {
-      app.querySelector<HTMLButtonElement>(
-        `[data-action="open"][data-thread-id="${cssEscape(selectedThreadId)}"]`
+    if (focusedGroupId) {
+      app.querySelector<HTMLElement>(
+        `.thread-group > summary[data-group-id="${focusedGroupId}"]`
       )?.focus({ preventScroll: true });
+      return;
+    }
+    if (selectedThreadId) {
+      const selected = app.querySelector<HTMLButtonElement>(
+        `[data-action="open"][data-thread-id="${cssEscape(selectedThreadId)}"]`
+      );
+      if (selected && isVisibleThreadButton(selected)) {
+        selected.focus({ preventScroll: true });
+      }
     }
   });
 
   function appendGroup(
+    groupId: ThreadListGroupId,
     label: string,
     group: ThreadListPageViewModel,
     loadMoreAction?: 'loadMoreActive' | 'loadMoreArchive'
   ): void {
-    const section = document.createElement('section');
+    const section = document.createElement('details');
     section.className = 'thread-group';
+    section.open = persistedState.expandedGroups[groupId];
+    const summary = document.createElement('summary');
+    summary.dataset.groupId = groupId;
     const heading = document.createElement('h2');
     heading.textContent = label;
-    section.append(heading);
+    summary.append(heading);
+    const content = document.createElement('div');
+    content.className = 'thread-group-content';
 
     for (const thread of group.threads) {
-      section.append(renderThreadCard(thread));
+      content.append(renderThreadCard(thread));
     }
     if (group.threads.length === 0) {
       const empty = document.createElement('p');
@@ -202,13 +204,22 @@ function renderList(state: Extract<ThreadsHostToWebviewMessage, { type: 'threads
         : group.loaded
           ? 'No threads in this group.'
           : 'Loading…';
-      section.append(empty);
+      content.append(empty);
     }
     if (group.nextCursor && loadMoreAction) {
       const more = actionButton('Load more…', loadMoreAction);
       more.className = 'load-more';
-      section.append(more);
+      content.append(more);
     }
+    section.append(summary, content);
+    section.addEventListener('toggle', () => {
+      persistState({
+        expandedGroups: {
+          ...persistedState.expandedGroups,
+          [groupId]: section.open
+        }
+      });
+    });
     app.append(section);
   }
 }
@@ -309,8 +320,25 @@ function persistConversation(model: ConversationViewModel): void {
 }
 
 function persistState(update: Partial<Omit<ThreadsWebviewState, 'version'>>): void {
-  persistedState = { ...persistedState, ...update, version: 1 };
+  persistedState = { ...persistedState, ...update, version: 2 };
   vscode.setState(persistedState);
+}
+
+function isVisibleThreadButton(button: HTMLButtonElement): boolean {
+  return button.closest<HTMLDetailsElement>('.thread-group')?.open !== false;
+}
+
+function focusedThreadGroupId(): ThreadListGroupId | undefined {
+  const focused = document.activeElement;
+  if (!(focused instanceof HTMLElement) || !focused.matches('.thread-group > summary')) {
+    return undefined;
+  }
+  const groupId = focused.dataset.groupId;
+  return isThreadListGroupId(groupId) ? groupId : undefined;
+}
+
+function isThreadListGroupId(value: string | undefined): value is ThreadListGroupId {
+  return value === 'pinned' || value === 'active' || value === 'archive';
 }
 
 function requireConversationTarget(): ConversationRenderTarget {
@@ -337,8 +365,6 @@ function actionButton(
 
 function isThreadListAction(value: string | undefined): value is ThreadListAction {
   return [
-    'refresh',
-    'openSettings',
     'loadMoreActive',
     'loadMoreArchive',
     'pin',
