@@ -37,7 +37,8 @@
       "codexThreadManager": [
         {
           "id": "codexThreadManager.threads",
-          "name": "Threads"
+          "name": "Threads",
+          "type": "webview"
         }
       ]
     },
