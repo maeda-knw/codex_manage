@@ -1,7 +1,29 @@
 import type { InitializeResponse } from './generated/InitializeResponse';
+import type { ServerNotification } from './generated/ServerNotification';
 import type { Thread } from './generated/v2/Thread';
 import type { ThreadListResponse } from './generated/v2/ThreadListResponse';
 import type { ThreadReadResponse } from './generated/v2/ThreadReadResponse';
+import type { ThreadResumeResponse } from './generated/v2/ThreadResumeResponse';
+import type { ThreadItem } from './generated/v2/ThreadItem';
+import type { ThreadStatus } from './generated/v2/ThreadStatus';
+import type { Turn } from './generated/v2/Turn';
+import type { TurnError } from './generated/v2/TurnError';
+import type { TurnInterruptResponse } from './generated/v2/TurnInterruptResponse';
+import type { TurnStartResponse } from './generated/v2/TurnStartResponse';
+
+type ConversationNotificationMethod =
+  | 'error'
+  | 'turn/started'
+  | 'turn/completed'
+  | 'item/started'
+  | 'item/completed'
+  | 'item/agentMessage/delta'
+  | 'thread/status/changed';
+
+export type ConversationNotification = Extract<
+  ServerNotification,
+  { method: ConversationNotificationMethod }
+>;
 
 export type JsonObject = Record<string, unknown>;
 
@@ -56,7 +78,114 @@ export function parseThreadReadResponse(
   return value as ThreadReadResponse;
 }
 
-function isThread(value: unknown): value is Thread {
+export function parseThreadResumeResponse(
+  value: unknown,
+  expectedThreadId?: string
+): ThreadResumeResponse {
+  if (
+    !isJsonObject(value) ||
+    !isThread(value.thread) ||
+    (expectedThreadId !== undefined && value.thread.id !== expectedThreadId) ||
+    typeof value.model !== 'string' ||
+    typeof value.modelProvider !== 'string' ||
+    !isNullableString(value.serviceTier) ||
+    typeof value.cwd !== 'string' ||
+    !isStringArray(value.instructionSources) ||
+    !isAskForApproval(value.approvalPolicy) ||
+    !isOneOf(value.approvalsReviewer, ['user', 'auto_review', 'guardian_subagent']) ||
+    !isSandboxPolicy(value.sandbox) ||
+    !isNullableString(value.reasoningEffort)
+  ) {
+    throw new Error('App Server returned an invalid thread/resume response.');
+  }
+
+  return value as ThreadResumeResponse;
+}
+
+export function parseTurnStartResponse(value: unknown): TurnStartResponse {
+  if (!isJsonObject(value) || !isTurn(value.turn)) {
+    throw new Error('App Server returned an invalid turn/start response.');
+  }
+
+  return value as TurnStartResponse;
+}
+
+export function parseTurnInterruptResponse(value: unknown): TurnInterruptResponse {
+  if (!isJsonObject(value) || Object.keys(value).length !== 0) {
+    throw new Error('App Server returned an invalid turn/interrupt response.');
+  }
+
+  return value as TurnInterruptResponse;
+}
+
+export function parseConversationNotification(
+  method: string,
+  params: unknown
+): ConversationNotification | undefined {
+  switch (method) {
+    case 'error':
+      if (
+        !isJsonObject(params) ||
+        !isTurnError(params.error) ||
+        typeof params.willRetry !== 'boolean' ||
+        typeof params.threadId !== 'string' ||
+        typeof params.turnId !== 'string'
+      ) {
+        throw invalidConversationNotification(method);
+      }
+      break;
+    case 'turn/started':
+    case 'turn/completed':
+      if (
+        !isJsonObject(params) ||
+        typeof params.threadId !== 'string' ||
+        !isTurn(params.turn)
+      ) {
+        throw invalidConversationNotification(method);
+      }
+      break;
+    case 'item/started':
+      if (
+        !isItemLifecycleNotification(params, 'startedAtMs')
+      ) {
+        throw invalidConversationNotification(method);
+      }
+      break;
+    case 'item/completed':
+      if (
+        !isItemLifecycleNotification(params, 'completedAtMs')
+      ) {
+        throw invalidConversationNotification(method);
+      }
+      break;
+    case 'item/agentMessage/delta':
+      if (
+        !isJsonObject(params) ||
+        typeof params.threadId !== 'string' ||
+        typeof params.turnId !== 'string' ||
+        typeof params.itemId !== 'string' ||
+        typeof params.delta !== 'string'
+      ) {
+        throw invalidConversationNotification(method);
+      }
+      break;
+    case 'thread/status/changed':
+      if (
+        !isJsonObject(params) ||
+        typeof params.threadId !== 'string' ||
+        !isThreadStatus(params.status)
+      ) {
+        throw invalidConversationNotification(method);
+      }
+      break;
+    default:
+      return undefined;
+  }
+
+  return { method, params } as ConversationNotification;
+}
+
+export function isThread(value: unknown): value is Thread {
   if (!isJsonObject(value)) {
     return false;
   }
@@ -87,7 +216,7 @@ function isThread(value: unknown): value is Thread {
   );
 }
 
-function isTurn(value: unknown): boolean {
+export function isTurn(value: unknown): value is Turn {
   return (
     isJsonObject(value) &&
     typeof value.id === 'string' &&
@@ -96,17 +225,7 @@ function isTurn(value: unknown): boolean {
     isOneOf(value.itemsView, ['notLoaded', 'summary', 'full']) &&
     isOneOf(value.status, ['completed', 'interrupted', 'failed', 'inProgress']) &&
     (
-      value.error === null ||
-      (
-        isJsonObject(value.error) &&
-        typeof value.error.message === 'string' &&
-        (
-          value.error.codexErrorInfo === null ||
-          typeof value.error.codexErrorInfo === 'string' ||
-          isJsonObject(value.error.codexErrorInfo)
-        ) &&
-        isNullableString(value.error.additionalDetails)
-      )
+      value.error === null || isTurnError(value.error)
     ) &&
     isNullableFiniteNumber(value.startedAt) &&
     isNullableFiniteNumber(value.completedAt) &&
@@ -114,16 +233,24 @@ function isTurn(value: unknown): boolean {
   );
 }
 
-function isThreadItem(value: unknown): boolean {
+export function isThreadItem(value: unknown): value is ThreadItem {
   if (!isJsonObject(value) || typeof value.type !== 'string' || typeof value.id !== 'string') {
     return false;
   }
 
   switch (value.type) {
     case 'userMessage':
-      return Array.isArray(value.content) && value.content.every(isUserInput);
+      return (
+        isNullableString(value.clientId) &&
+        Array.isArray(value.content) &&
+        value.content.every(isUserInput)
+      );
     case 'agentMessage':
-      return typeof value.text === 'string';
+      return (
+        typeof value.text === 'string' &&
+        (value.phase === null || isOneOf(value.phase, ['commentary', 'final_answer'])) &&
+        (value.memoryCitation === null || isMemoryCitation(value.memoryCitation))
+      );
     case 'plan':
       return typeof value.text === 'string';
     case 'reasoning':
@@ -183,8 +310,10 @@ function isThreadItem(value: unknown): boolean {
         )
       );
     case 'imageView':
+      return typeof value.path === 'string';
     case 'enteredReviewMode':
     case 'exitedReviewMode':
+      return typeof value.review === 'string';
     case 'contextCompaction':
       return true;
     case 'sleep':
@@ -203,11 +332,15 @@ function isUserInput(value: unknown): boolean {
 
   switch (value.type) {
     case 'text':
-      return typeof value.text === 'string' && Array.isArray(value.text_elements);
+      return (
+        typeof value.text === 'string' &&
+        Array.isArray(value.text_elements) &&
+        value.text_elements.every(isTextElement)
+      );
     case 'image':
-      return typeof value.url === 'string';
+      return isOptionalImageDetail(value.detail) && typeof value.url === 'string';
     case 'localImage':
-      return typeof value.path === 'string';
+      return isOptionalImageDetail(value.detail) && typeof value.path === 'string';
     case 'skill':
     case 'mention':
       return typeof value.name === 'string' && typeof value.path === 'string';
@@ -227,16 +360,153 @@ function isFileUpdateChange(value: unknown): boolean {
   );
 }
 
-function isThreadStatus(value: unknown): boolean {
+export function isThreadStatus(value: unknown): value is ThreadStatus {
   if (!isJsonObject(value) || typeof value.type !== 'string') {
     return false;
   }
 
   if (value.type === 'active') {
-    return Array.isArray(value.activeFlags);
+    return (
+      Array.isArray(value.activeFlags) &&
+      value.activeFlags.every((flag) => isOneOf(flag, ['waitingOnApproval', 'waitingOnUserInput']))
+    );
   }
 
   return value.type === 'notLoaded' || value.type === 'idle' || value.type === 'systemError';
+}
+
+export function isTurnError(value: unknown): value is TurnError {
+  return (
+    isJsonObject(value) &&
+    typeof value.message === 'string' &&
+    (value.codexErrorInfo === null || isCodexErrorInfo(value.codexErrorInfo)) &&
+    isNullableString(value.additionalDetails)
+  );
+}
+
+function isItemLifecycleNotification(
+  value: unknown,
+  timestampKey: 'startedAtMs' | 'completedAtMs'
+): boolean {
+  return (
+    isJsonObject(value) &&
+    typeof value.threadId === 'string' &&
+    typeof value.turnId === 'string' &&
+    isThreadItem(value.item) &&
+    isFiniteNumber(value[timestampKey])
+  );
+}
+
+function invalidConversationNotification(method: ConversationNotificationMethod): Error {
+  return new Error(`App Server returned invalid ${method} notification params.`);
+}
+
+function isAskForApproval(value: unknown): boolean {
+  if (isOneOf(value, ['untrusted', 'on-request', 'never'])) {
+    return true;
+  }
+  if (!isJsonObject(value) || !isJsonObject(value.granular)) {
+    return false;
+  }
+  const granular = value.granular;
+  return (
+    typeof granular.sandbox_approval === 'boolean' &&
+    typeof granular.rules === 'boolean' &&
+    typeof granular.skill_approval === 'boolean' &&
+    typeof granular.request_permissions === 'boolean' &&
+    typeof granular.mcp_elicitations === 'boolean'
+  );
+}
+
+function isSandboxPolicy(value: unknown): boolean {
+  if (!isJsonObject(value) || typeof value.type !== 'string') {
+    return false;
+  }
+  switch (value.type) {
+    case 'dangerFullAccess':
+      return true;
+    case 'readOnly':
+      return typeof value.networkAccess === 'boolean';
+    case 'externalSandbox':
+      return isOneOf(value.networkAccess, ['restricted', 'enabled']);
+    case 'workspaceWrite':
+      return (
+        isStringArray(value.writableRoots) &&
+        typeof value.networkAccess === 'boolean' &&
+        typeof value.excludeTmpdirEnvVar === 'boolean' &&
+        typeof value.excludeSlashTmp === 'boolean'
+      );
+    default:
+      return false;
+  }
+}
+
+function isTextElement(value: unknown): boolean {
+  return (
+    isJsonObject(value) &&
+    isJsonObject(value.byteRange) &&
+    isFiniteNumber(value.byteRange.start) &&
+    isFiniteNumber(value.byteRange.end) &&
+    isNullableString(value.placeholder)
+  );
+}
+
+function isOptionalImageDetail(value: unknown): boolean {
+  return value === undefined || isOneOf(value, ['auto', 'low', 'high', 'original']);
+}
+
+function isMemoryCitation(value: unknown): boolean {
+  return (
+    isJsonObject(value) &&
+    Array.isArray(value.entries) &&
+    value.entries.every((entry) => (
+      isJsonObject(entry) &&
+      typeof entry.path === 'string' &&
+      isFiniteNumber(entry.lineStart) &&
+      isFiniteNumber(entry.lineEnd) &&
+      typeof entry.note === 'string'
+    )) &&
+    isStringArray(value.threadIds)
+  );
+}
+
+function isCodexErrorInfo(value: unknown): boolean {
+  if (
+    isOneOf(value, [
+      'contextWindowExceeded',
+      'sessionBudgetExceeded',
+      'usageLimitExceeded',
+      'serverOverloaded',
+      'cyberPolicy',
+      'internalServerError',
+      'unauthorized',
+      'badRequest',
+      'threadRollbackFailed',
+      'sandboxError',
+      'other'
+    ])
+  ) {
+    return true;
+  }
+  if (!isJsonObject(value)) {
+    return false;
+  }
+  for (const key of [
+    'httpConnectionFailed',
+    'responseStreamConnectionFailed',
+    'responseStreamDisconnected',
+    'responseTooManyFailedAttempts'
+  ]) {
+    if (key in value) {
+      const detail = value[key];
+      return isJsonObject(detail) && isNullableFiniteNumber(detail.httpStatusCode);
+    }
+  }
+  if ('activeTurnNotSteerable' in value) {
+    const detail = value.activeTurnNotSteerable;
+    return isJsonObject(detail) && isOneOf(detail.turnKind, ['review', 'compact']);
+  }
+  return false;
 }
 
 function isNullableString(value: unknown): value is string | null {

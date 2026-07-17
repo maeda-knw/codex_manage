@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added vNext Phase B text conversation with `thread/resume`, `turn/start`, streamed agent-message updates, and `turn/interrupt` Stop support.
+- Added a sticky sidebar composer with Ctrl/Cmd+Enter sending, double-submit protection, correlated operation results, and draft preservation on failure.
+- Added host-owned conversation sessions and an ID-keyed reducer that isolates threads, converges on completed snapshots, and re-synchronizes history after disconnects.
+- Added keyed transcript rendering so streaming updates preserve activity-card expansion, focus, and scroll position.
+- Added strict response/notification boundaries and fake App Server coverage for resume, start, delta, completion, interrupt, malformed responses, and message-log redaction.
 - Added vNext Phase A read-only conversation rendering backed by `thread/read(includeTurns: true)`.
 - Added vNext Phase A.5 list/conversation navigation inside one Codex sidebar Webview View, including Back, reload, scroll/selection restoration, and stale-read protection.
 - Added vNext Phase A.6 list polish: native view-title actions are no longer duplicated, thread groups are collapsible, full card bodies open conversations, and management uses inline icons.

@@ -44,7 +44,14 @@ The GitHub Actions workflow runs quality, packaging, and Extension Host checks o
 - Select each icon and the gaps around the icon strip and confirm none opens a conversation or triggers a neighboring card action.
 - Use **Back** and confirm the loaded list, scroll position, and selected-row focus are restored where possible.
 - Open two different threads in sequence and confirm their histories do not mix.
-- Use **Reload** and confirm the sidebar history refreshes without creating a new turn or changing Codex data.
+- Send a multiline text prompt with Ctrl/Cmd+Enter and confirm Enter alone inserts a line break.
+- Double-click Send and press the shortcut repeatedly while sending; confirm only one turn starts and the draft clears only after acceptance.
+- Confirm the Codex reply grows in place while streaming without collapsing an expanded work card or moving focus unexpectedly.
+- Scroll away from the bottom during a response and confirm streaming does not force the viewport back down.
+- Select **Stop** during a response and confirm only the visible thread's active turn is interrupted.
+- Disconnect or stop the App Server, confirm the last transcript remains visible and the composer becomes unavailable, then use **Reload** and confirm resume/read restores the authoritative history.
+- Switch threads while one is responding and confirm messages, execution state, and operation results never appear in the other conversation.
+- Use **Reload** and confirm the sidebar history re-synchronizes without creating a new turn.
 - Run **Developer: Reload Window** with a sidebar conversation open and confirm the same thread history is restored after the list loads.
 - Use Arrow Up/Down, Home/End, Tab, Shift+Tab, the collapsible group headings, and every inline action to confirm visible focus and keyboard access; arrow navigation must skip collapsed groups, and list updates must preserve the active heading or card control.
 - Pin into a collapsed Pinned group, archive into a collapsed Archive group, restore into Recent, and confirm focus moves to the corresponding action, card, or destination group heading without disappearing.
@@ -58,7 +65,7 @@ The GitHub Actions workflow runs quality, packaging, and Extension Host checks o
 
 ## Real CLI smoke test
 
-The opt-in smoke test is read-only. It calls `initialize`, `thread/list`, and, when a matching thread exists, `thread/read(includeTurns: true)`. It asserts only the thread ID and turn-array shape and does not print conversation content:
+The opt-in smoke test remains read-only even though the extension can send messages. It calls `initialize`, `thread/list`, and, when a matching thread exists, `thread/read(includeTurns: true)`. It asserts only the thread ID and turn-array shape and does not print conversation content:
 
 ```powershell
 $env:CODEX_SMOKE_PATH = 'C:\path\to\codex.cmd'

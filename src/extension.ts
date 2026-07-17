@@ -30,6 +30,7 @@ export function activate(context: vscode.ExtensionContext): void {
     });
     client.onNotification((notification) => {
       output.appendLine(`[app-server] Notification: ${notification.method}`);
+      provider.handleNotification(notification);
       if (repository?.handleThreadNotification(notification.method, notification.params)) {
         repository.setPinnedThreadIds(pinStore.getPinnedThreadIds());
         provider.setSnapshot(repository.snapshot());
@@ -48,6 +49,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const replaceClient = (): AppServerClient => {
     probeGeneration += 1;
+    provider.markConversationDisconnected();
     activeClient?.dispose();
     activeClient = createClient();
     repository = new ThreadRepository(activeClient);
@@ -63,7 +65,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const provider = new ThreadListWebviewProvider({
     extensionUri: context.extensionUri,
-    readThread,
+    conversationClient: {
+      readThread: (params) => (activeClient ?? replaceClient()).readThread(params),
+      resumeThread: (params) => (activeClient ?? replaceClient()).resumeThread(params),
+      startTurn: (params) => (activeClient ?? replaceClient()).startTurn(params),
+      interruptTurn: (params) => (activeClient ?? replaceClient()).interruptTurn(params)
+    },
     logger: output
   });
 
@@ -162,6 +169,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerWebviewViewProvider('codexThreadManager.threads', provider),
     vscode.window.registerWebviewPanelSerializer(CONVERSATION_VIEW_TYPE, conversationPanels),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      provider.resetWorkspace();
+      const client = activeClient ?? replaceClient();
+      repository = new ThreadRepository(client);
+      repository.setPinnedThreadIds(pinStore.getPinnedThreadIds());
+      provider.setSnapshot(repository.snapshot());
       void refreshThreads(false);
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {

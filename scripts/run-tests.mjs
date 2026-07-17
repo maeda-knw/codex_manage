@@ -11,6 +11,8 @@ const entryPoints = [
   'test/unit/pinStore.test.ts',
   'test/unit/conversationPanelManager.test.ts',
   'test/unit/conversationProtocol.test.ts',
+  'test/unit/conversationReducer.test.ts',
+  'test/unit/conversationSession.test.ts',
   'test/unit/conversationViewModel.test.ts',
   'test/unit/conversationWebview.test.ts',
   'test/unit/protocolGuards.test.ts',

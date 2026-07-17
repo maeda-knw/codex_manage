@@ -1,4 +1,11 @@
-import type { ConversationViewModel } from '../../conversation/conversationViewModel';
+import type {
+  ConversationItemViewModel,
+  ConversationTurnViewModel,
+  ConversationViewModel
+} from '../../conversation/conversationViewModel';
+
+export const MAX_COMPOSER_TEXT_LENGTH = 100_000;
+export const MAX_CONVERSATION_ID_LENGTH = 512;
 
 export type ThreadListAction =
   | 'loadMoreActive'
@@ -44,11 +51,61 @@ export type ThreadListConnectionStatus =
   | { readonly kind: 'ready' }
   | { readonly kind: 'error'; readonly message: string };
 
+export type ConversationExecutionViewModel =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'resuming' }
+  | { readonly kind: 'starting' }
+  | { readonly kind: 'running'; readonly turnId: string }
+  | { readonly kind: 'stopping'; readonly turnId: string }
+  | { readonly kind: 'unavailable'; readonly message: string };
+
+export interface ConversationScreenState {
+  readonly sessionId: string;
+  readonly revision: number;
+  readonly model: ConversationViewModel;
+  readonly execution: ConversationExecutionViewModel;
+  readonly notice?: string;
+}
+
+export type ConversationOperation = 'send' | 'stop';
+
+export type ConversationOperationResult =
+  | {
+    readonly type: 'threads/conversationOperationResult';
+    readonly sessionId: string;
+    readonly threadId: string;
+    readonly requestId: string;
+    readonly operation: ConversationOperation;
+    readonly outcome: 'accepted';
+  }
+  | {
+    readonly type: 'threads/conversationOperationResult';
+    readonly sessionId: string;
+    readonly threadId: string;
+    readonly requestId: string;
+    readonly operation: ConversationOperation;
+    readonly outcome: 'rejected';
+    readonly message: string;
+  };
+
 export type ThreadsWebviewToHostMessage =
   | { readonly type: 'threads/ready' }
   | { readonly type: 'threads/open'; readonly threadId: string }
   | { readonly type: 'threads/back' }
   | { readonly type: 'threads/reload' }
+  | {
+    readonly type: 'threads/conversation/send';
+    readonly sessionId: string;
+    readonly threadId: string;
+    readonly requestId: string;
+    readonly text: string;
+  }
+  | {
+    readonly type: 'threads/conversation/stop';
+    readonly sessionId: string;
+    readonly threadId: string;
+    readonly requestId: string;
+  }
   | {
     readonly type: 'threads/action';
     readonly action: ThreadListAction;
@@ -65,19 +122,26 @@ export type ThreadsHostToWebviewMessage =
   | { readonly type: 'threads/showList' }
   | {
     readonly type: 'threads/conversationLoading';
+    readonly sessionId: string;
     readonly threadId: string;
     readonly title: string;
   }
   | {
     readonly type: 'threads/conversationLoaded';
-    readonly model: ConversationViewModel;
+    readonly state: ConversationScreenState;
+  }
+  | {
+    readonly type: 'threads/conversationState';
+    readonly state: ConversationScreenState;
   }
   | {
     readonly type: 'threads/conversationError';
+    readonly sessionId: string;
     readonly threadId: string;
     readonly title: string;
     readonly message: string;
-  };
+  }
+  | ConversationOperationResult;
 
 export interface ThreadsWebviewState {
   readonly version: 2;
@@ -120,7 +184,26 @@ export function isThreadsWebviewMessage(value: unknown): value is ThreadsWebview
     return true;
   }
   if (value.type === 'threads/open') {
-    return isNonEmptyString(value.threadId);
+    return isBoundedId(value.threadId);
+  }
+  if (value.type === 'threads/conversation/send') {
+    return (
+      hasOnlyKeys(value, ['type', 'sessionId', 'threadId', 'requestId', 'text']) &&
+      isBoundedId(value.sessionId) &&
+      isBoundedId(value.threadId) &&
+      isBoundedId(value.requestId) &&
+      typeof value.text === 'string' &&
+      Boolean(value.text.trim()) &&
+      value.text.length <= MAX_COMPOSER_TEXT_LENGTH
+    );
+  }
+  if (value.type === 'threads/conversation/stop') {
+    return (
+      hasOnlyKeys(value, ['type', 'sessionId', 'threadId', 'requestId']) &&
+      isBoundedId(value.sessionId) &&
+      isBoundedId(value.threadId) &&
+      isBoundedId(value.requestId)
+    );
   }
   if (
     value.type !== 'threads/action' ||
@@ -145,14 +228,35 @@ export function isThreadsHostMessage(value: unknown): value is ThreadsHostToWebv
     case 'threads/listState':
       return isObject(value.snapshot) && isObject(value.status) && typeof value.hasWorkspace === 'boolean';
     case 'threads/conversationLoading':
-      return isNonEmptyString(value.threadId) && typeof value.title === 'string';
+      return isBoundedId(value.sessionId) && isBoundedId(value.threadId) && typeof value.title === 'string';
     case 'threads/conversationLoaded':
-      return isObject(value.model);
+    case 'threads/conversationState':
+      return isConversationScreenState(value.state);
     case 'threads/conversationError':
-      return isNonEmptyString(value.threadId) && typeof value.title === 'string' && typeof value.message === 'string';
+      return (
+        isBoundedId(value.sessionId) &&
+        isBoundedId(value.threadId) &&
+        typeof value.title === 'string' &&
+        typeof value.message === 'string'
+      );
+    case 'threads/conversationOperationResult':
+      return isConversationOperationResult(value);
     default:
       return false;
   }
+}
+
+export function isConversationScreenState(value: unknown): value is ConversationScreenState {
+  return (
+    isObject(value) &&
+    isBoundedId(value.sessionId) &&
+    typeof value.revision === 'number' &&
+    Number.isSafeInteger(value.revision) &&
+    value.revision >= 0 &&
+    isConversationViewModel(value.model) &&
+    isConversationExecution(value.execution) &&
+    (value.notice === undefined || typeof value.notice === 'string')
+  );
 }
 
 export function isThreadsWebviewState(value: unknown): value is ThreadsWebviewState {
@@ -220,6 +324,108 @@ function defaultExpandedGroups(): ThreadListExpandedGroups {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && Boolean(value.trim());
+}
+
+function isBoundedId(value: unknown): value is string {
+  return isNonEmptyString(value) && value.length <= MAX_CONVERSATION_ID_LENGTH;
+}
+
+function isConversationOperationResult(
+  value: Record<string, unknown>
+): value is ConversationOperationResult {
+  if (
+    !isBoundedId(value.sessionId) ||
+    !isBoundedId(value.threadId) ||
+    !isBoundedId(value.requestId) ||
+    (value.operation !== 'send' && value.operation !== 'stop')
+  ) {
+    return false;
+  }
+  return value.outcome === 'accepted' || (
+    value.outcome === 'rejected' && typeof value.message === 'string'
+  );
+}
+
+function isConversationExecution(value: unknown): value is ConversationExecutionViewModel {
+  if (!isObject(value) || typeof value.kind !== 'string') {
+    return false;
+  }
+  switch (value.kind) {
+    case 'idle':
+    case 'resuming':
+    case 'starting':
+      return true;
+    case 'running':
+    case 'stopping':
+      return isBoundedId(value.turnId);
+    case 'unavailable':
+      return typeof value.message === 'string';
+    default:
+      return false;
+  }
+}
+
+function isConversationViewModel(value: unknown): value is ConversationViewModel {
+  return (
+    isObject(value) &&
+    isBoundedId(value.threadId) &&
+    typeof value.title === 'string' &&
+    typeof value.cwd === 'string' &&
+    typeof value.status === 'string' &&
+    isFiniteNumber(value.updatedAt) &&
+    typeof value.isPartialHistory === 'boolean' &&
+    Array.isArray(value.turns) &&
+    value.turns.every(isConversationTurn)
+  );
+}
+
+function isConversationTurn(value: unknown): value is ConversationTurnViewModel {
+  return (
+    isObject(value) &&
+    isBoundedId(value.id) &&
+    typeof value.status === 'string' &&
+    (value.itemsView === 'notLoaded' || value.itemsView === 'summary' || value.itemsView === 'full') &&
+    isNullableFiniteNumber(value.startedAt) &&
+    isNullableFiniteNumber(value.completedAt) &&
+    isNullableFiniteNumber(value.durationMs) &&
+    (value.errorMessage === null || typeof value.errorMessage === 'string') &&
+    Array.isArray(value.items) &&
+    value.items.every(isConversationItem)
+  );
+}
+
+function isConversationItem(value: unknown): value is ConversationItemViewModel {
+  if (!isObject(value) || !isBoundedId(value.id)) {
+    return false;
+  }
+  if (value.kind === 'message') {
+    return (
+      (value.role === 'user' || value.role === 'assistant') &&
+      typeof value.text === 'string'
+    );
+  }
+  return (
+    value.kind === 'activity' &&
+    typeof value.activityKind === 'string' &&
+    typeof value.title === 'string' &&
+    (value.status === null || typeof value.status === 'string') &&
+    (value.detail === null || typeof value.detail === 'string')
+  );
+}
+
+function isNullableFiniteNumber(value: unknown): value is number | null {
+  return value === null || isFiniteNumber(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[]
+): boolean {
+  return Object.keys(value).every((key) => keys.includes(key));
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

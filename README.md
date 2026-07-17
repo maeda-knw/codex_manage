@@ -12,7 +12,9 @@ The MVP is packaged for private VSIX installation. Marketplace publication is no
 - Archives threads, supports immediate Undo, and restores archived threads.
 - Loads large thread collections page by page.
 - Updates names, archive state, and execution status from App Server notifications.
-- Opens a selected thread's read-only conversation in the same Codex sidebar, including stored user/Codex messages, turn state, and summarized work cards.
+- Opens a selected thread's conversation in the same Codex sidebar, including stored user/Codex messages, turn state, and summarized work cards.
+- Sends text prompts to an existing thread, streams Codex replies in place, and stops the active turn when needed.
+- Keeps the last confirmed transcript visible across disconnects and re-synchronizes it with `thread/resume` plus `thread/read` after reconnecting.
 - Preserves the list position when navigating back and restores the selected conversation by re-reading history after a VS Code window reload.
 - Keeps Pinned and Recent threads expanded by default, keeps Archive collapsed, and remembers each group's visibility.
 - Opens a conversation from the full thread-card body and exposes pin, rename, archive, and restore as inline icon actions.
@@ -58,8 +60,10 @@ Reload VS Code after installation.
 5. Select anywhere in a thread card except its action icons to open stored conversation history in the same Codex sidebar.
 6. Select a group heading to expand or collapse Pinned, Recent threads, or Archive.
 7. Hover a row or focus it with the keyboard, then use its inline icons to pin, rename, archive, or restore it.
-8. Use **Reload** in the sidebar conversation header to fetch its latest stored state, then **Back** to return to the list.
-9. Open **View: Toggle Output** and select `Codex Thread Manager` for connection diagnostics.
+8. Enter a text message and select **Send**, or press Ctrl+Enter / Cmd+Enter. Enter by itself inserts a new line.
+9. While Codex is responding, select **Stop** to interrupt that turn.
+10. Use **Reload** to reconnect and re-synchronize the selected conversation, then **Back** to return to the list.
+11. Open **View: Toggle Output** and select `Codex Thread Manager` for connection diagnostics.
 
 Only threads whose `cwd` exactly matches one of the open workspace folder paths are shown. Threads started in a nested subdirectory are not included in this MVP.
 
@@ -119,7 +123,8 @@ The local list remains unchanged when the App Server rejects an operation. Revie
 
 ## Limitations
 
-- Conversation views are read-only: no prompt sending, streaming updates, Stop action, approvals, or follow-up questions yet.
+- Text conversation is supported only for existing threads; image, file, Skill, and mention inputs are not available yet.
+- Approval requests and follow-up questions are not supported until vNext Phase C. Unsupported App Server requests are rejected rather than approved implicitly, so a turn that needs one may fail and must be continued in another Codex client for now.
 - Stored messages are rendered as plain text; Markdown rendering and clickable links are not enabled yet.
 - Raw reasoning content, command output, file diffs, and tool arguments/results are intentionally not displayed.
 - Some older turns may contain only summary history, which is indicated in the conversation view.

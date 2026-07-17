@@ -1,11 +1,41 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  MAX_COMPOSER_TEXT_LENGTH,
+  MAX_CONVERSATION_ID_LENGTH,
   isThreadsHostMessage,
   isThreadsWebviewMessage,
   isThreadsWebviewState,
   restoreThreadsWebviewState
 } from '../../src/webview/threads/protocol';
+
+const conversationState = {
+  sessionId: 'session-1',
+  revision: 1,
+  model: {
+    threadId: 'thread-1',
+    title: 'Thread 1',
+    cwd: 'D:\\workspace',
+    status: 'Running',
+    updatedAt: 1_750_000_000_000,
+    isPartialHistory: false,
+    turns: [
+      {
+        id: 'turn-1',
+        status: 'In progress',
+        itemsView: 'full',
+        startedAt: 1_750_000_000_000,
+        completedAt: null,
+        durationMs: null,
+        errorMessage: null,
+        items: [
+          { kind: 'message', id: 'message-1', role: 'assistant', text: 'Hello' }
+        ]
+      }
+    ]
+  },
+  execution: { kind: 'running', turnId: 'turn-1' }
+} as const;
 
 test('accepts only the explicit sidebar navigation messages', () => {
   for (const message of [
@@ -39,6 +69,54 @@ test('requires thread IDs only for thread-scoped management actions', () => {
   }), false);
 });
 
+test('accepts bounded composer actions and rejects arbitrary conversation payloads', () => {
+  assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/send',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    requestId: 'request-1',
+    text: 'Continue this thread'
+  }), true);
+  assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/stop',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    requestId: 'request-2'
+  }), true);
+
+  for (const text of ['', ' \n\t', 'x'.repeat(MAX_COMPOSER_TEXT_LENGTH + 1)]) {
+    assert.equal(isThreadsWebviewMessage({
+      type: 'threads/conversation/send',
+      sessionId: 'session-1',
+      threadId: 'thread-1',
+      requestId: 'request-1',
+      text
+    }), false);
+  }
+  assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/send',
+    sessionId: 'x'.repeat(MAX_CONVERSATION_ID_LENGTH + 1),
+    threadId: 'thread-1',
+    requestId: 'request-1',
+    text: 'Hello'
+  }), false);
+  assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/stop',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    requestId: 'request-2',
+    turnId: 'turn-from-webview'
+  }), false);
+  assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/send',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    requestId: 'request-1',
+    text: 'Hello',
+    method: 'turn/start'
+  }), false);
+});
+
 test('validates persisted navigation state and host messages', () => {
   assert.equal(isThreadsWebviewState({
     version: 2,
@@ -64,14 +142,75 @@ test('validates persisted navigation state and host messages', () => {
   assert.equal(isThreadsHostMessage({ type: 'threads/showList' }), true);
   assert.equal(isThreadsHostMessage({
     type: 'threads/conversationLoading',
+    sessionId: 'session-1',
     threadId: 'thread-1',
     title: 'Thread 1'
   }), true);
   assert.equal(isThreadsHostMessage({
+    type: 'threads/conversationLoaded',
+    state: conversationState
+  }), true);
+  assert.equal(isThreadsHostMessage({
+    type: 'threads/conversationState',
+    state: {
+      ...conversationState,
+      revision: 2,
+      execution: { kind: 'idle' }
+    }
+  }), true);
+  assert.equal(isThreadsHostMessage({
     type: 'threads/conversationError',
+    sessionId: 'session-1',
     threadId: 'thread-1',
     title: 'Thread 1',
     message: 500
+  }), false);
+  assert.equal(isThreadsHostMessage({
+    type: 'threads/conversationState',
+    state: { ...conversationState, revision: -1 }
+  }), false);
+  assert.equal(isThreadsHostMessage({
+    type: 'threads/conversationState',
+    state: {
+      ...conversationState,
+      execution: { kind: 'running', turnId: '' }
+    }
+  }), false);
+});
+
+test('validates correlated conversation operation results', () => {
+  assert.equal(isThreadsHostMessage({
+    type: 'threads/conversationOperationResult',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    requestId: 'request-1',
+    operation: 'send',
+    outcome: 'accepted'
+  }), true);
+  assert.equal(isThreadsHostMessage({
+    type: 'threads/conversationOperationResult',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    requestId: 'request-2',
+    operation: 'stop',
+    outcome: 'rejected',
+    message: 'The turn already completed.'
+  }), true);
+  assert.equal(isThreadsHostMessage({
+    type: 'threads/conversationOperationResult',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    requestId: 'request-2',
+    operation: 'execute',
+    outcome: 'accepted'
+  }), false);
+  assert.equal(isThreadsHostMessage({
+    type: 'threads/conversationOperationResult',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    requestId: 'request-2',
+    operation: 'stop',
+    outcome: 'rejected'
   }), false);
 });
 
