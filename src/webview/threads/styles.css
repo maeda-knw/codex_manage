@@ -228,6 +228,17 @@ button.thread-action:hover {
   flex: 1;
 }
 
+.conversation-view {
+  display: flex;
+  min-height: calc(100vh - 28px);
+  flex-direction: column;
+}
+
+.conversation-content {
+  min-height: 0;
+  flex: 1;
+}
+
 .conversation-heading h1 {
   margin: 0;
   overflow: hidden;
@@ -266,6 +277,120 @@ button.thread-action:hover {
   padding: 8px;
 }
 
+.conversation-composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: 14px;
+  padding: 10px 0 4px;
+  background: var(--vscode-sideBar-background);
+  border-top: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
+}
+
+.conversation-composer-input {
+  display: block;
+  width: 100%;
+  min-height: 66px;
+  max-height: 220px;
+  padding: 8px 9px;
+  resize: vertical;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
+  border-radius: 4px;
+  font: inherit;
+  line-height: 1.4;
+}
+
+.conversation-composer-input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.conversation-composer-input:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.conversation-composer-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.conversation-composer-input[readonly] {
+  opacity: 0.8;
+}
+
+.conversation-composer-footer {
+  display: flex;
+  min-height: 30px;
+  margin-top: 7px;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.conversation-composer-status {
+  min-width: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.conversation-composer-controls {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+button.conversation-send {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+button.conversation-send:hover:not(:disabled):not(.is-disabled) {
+  background: var(--vscode-button-hoverBackground);
+}
+
+button.conversation-stop {
+  color: var(--vscode-errorForeground);
+  background: transparent;
+  border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+}
+
+button.conversation-stop:hover:not(:disabled):not(.is-disabled) {
+  background: var(--vscode-inputValidation-errorBackground, var(--vscode-toolbar-hoverBackground));
+}
+
+button.conversation-send:disabled,
+button.conversation-stop:disabled,
+button.conversation-send.is-disabled,
+button.conversation-stop.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.conversation-composer-error {
+  margin: 7px 0 0;
+  color: var(--vscode-errorForeground);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+[hidden] {
+  display: none !important;
+}
+
 @media (hover: none) {
   .thread-actions {
     opacity: 1;
@@ -275,7 +400,8 @@ button.thread-action:hover {
 
 @media (forced-colors: active) {
   .thread-card,
-  button:not(.thread-open) {
+  button:not(.thread-open),
+  .conversation-composer-input {
     border-color: CanvasText;
   }
 }

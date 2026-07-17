@@ -8,8 +8,12 @@ import {
   type ConversationRenderTarget
 } from '../conversation/render';
 import {
+  MAX_COMPOSER_TEXT_LENGTH,
   isThreadsHostMessage,
   restoreThreadsWebviewState,
+  type ConversationExecutionViewModel,
+  type ConversationOperationResult,
+  type ConversationScreenState,
   type ThreadListAction,
   type ThreadListGroupId,
   type ThreadListItemViewModel,
@@ -33,6 +37,21 @@ interface ThreadCardFocus {
   readonly sourceGroupId?: ThreadListGroupId;
 }
 
+interface ConversationComposerTarget {
+  readonly container: HTMLElement;
+  readonly input: HTMLTextAreaElement;
+  readonly send: HTMLButtonElement;
+  readonly stop: HTMLButtonElement;
+  readonly status: HTMLElement;
+  readonly error: HTMLElement;
+  readonly announcer: HTMLElement;
+}
+
+interface PendingConversationSend {
+  readonly requestId: string;
+  readonly text: string;
+}
+
 declare function acquireVsCodeApi<T>(): VsCodeApi<T>;
 
 const vscode = acquireVsCodeApi<ThreadsWebviewState>();
@@ -41,7 +60,17 @@ let persistedState = restoreThreadsWebviewState(vscode.getState());
 let listState: Extract<ThreadsHostToWebviewMessage, { type: 'threads/listState' }> | undefined;
 let screen: 'list' | 'conversation' = persistedState.screen;
 let conversationTarget: ConversationRenderTarget | undefined;
+let conversationComposerTarget: ConversationComposerTarget | undefined;
 let conversationThreadId: string | undefined;
+let conversationSessionId: string | undefined;
+let conversationScreenState: ConversationScreenState | undefined;
+let pendingConversationState: ConversationScreenState | undefined;
+let pendingConversationFrame: number | undefined;
+let lastConversationRevision = -1;
+let hasRenderedConversation = false;
+let lastAnnouncedCompletedTurnId: string | undefined;
+let pendingConversationSend: PendingConversationSend | undefined;
+let pendingConversationStopRequestId: string | undefined;
 let pendingThreadCardFocus: ThreadCardFocus | undefined;
 let pendingThreadGroupFocusId: ThreadListGroupId | undefined;
 let listRenderGeneration = 0;
@@ -75,9 +104,17 @@ app.addEventListener('click', (event) => {
       listScrollTop: window.scrollY
     });
     const title = element.dataset.threadTitle ?? 'Codex thread';
-    showConversationShell(threadId, title, true);
+    showConversationShell(threadId, title, false);
     renderConversationLoading(requireConversationTarget(), title);
     vscode.postMessage({ type: 'threads/open', threadId });
+    return;
+  }
+  if (action === 'stop') {
+    stopConversation();
+    return;
+  }
+  if (action === 'send') {
+    submitConversation();
     return;
   }
   if (action === 'back') {
@@ -101,7 +138,22 @@ app.addEventListener('click', (event) => {
 });
 
 app.addEventListener('keydown', (event) => {
-  if (!(event instanceof KeyboardEvent) || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+  if (!(event instanceof KeyboardEvent)) {
+    return;
+  }
+  if (
+    event.target === conversationComposerTarget?.input &&
+    event.key === 'Enter' &&
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    !event.isComposing
+  ) {
+    event.preventDefault();
+    submitConversation();
+    return;
+  }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
     return;
   }
   const current = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-action="open"]');
@@ -125,6 +177,12 @@ app.addEventListener('keydown', (event) => {
   }
 });
 
+app.addEventListener('input', (event) => {
+  if (event.target === conversationComposerTarget?.input) {
+    updateConversationComposer();
+  }
+});
+
 vscode.postMessage({ type: 'threads/ready' });
 
 function handleHostMessage(message: ThreadsHostToWebviewMessage): void {
@@ -137,23 +195,50 @@ function handleHostMessage(message: ThreadsHostToWebviewMessage): void {
       return;
     case 'threads/showList':
       screen = 'list';
+      resetConversationContext();
       persistState({ screen: 'list' });
       if (listState) {
         renderList(listState);
       }
       return;
     case 'threads/conversationLoading':
-      showConversationShell(message.threadId, message.title, true);
-      renderConversationLoading(requireConversationTarget(), message.title);
+      if (
+        conversationThreadId !== message.threadId &&
+        !(
+          !conversationThreadId &&
+          screen === 'conversation' &&
+          persistedState.selectedThreadId === message.threadId
+        )
+      ) {
+        return;
+      }
+      showConversationShell(message.threadId, message.title, false, message.sessionId);
+      renderConversationLoading(
+        requireConversationTarget(),
+        message.title,
+        hasRenderedConversation
+      );
+      updateConversationComposer();
       return;
     case 'threads/conversationLoaded':
-      showConversationShell(message.model.threadId, message.model.title);
-      renderConversation(requireConversationTarget(), message.model);
-      persistConversation(message.model);
+    case 'threads/conversationState':
+      queueConversationState(message.state);
       return;
     case 'threads/conversationError':
-      showConversationShell(message.threadId, message.title);
-      renderConversationError(requireConversationTarget(), message.message, message.title);
+      if (!isActiveConversation(message.sessionId, message.threadId)) {
+        return;
+      }
+      renderConversationError(
+        requireConversationTarget(),
+        message.message,
+        message.title,
+        hasRenderedConversation
+      );
+      showConversationOperationError(message.message);
+      updateConversationComposer();
+      return;
+    case 'threads/conversationOperationResult':
+      handleConversationOperationResult(message);
   }
 }
 
@@ -173,9 +258,9 @@ function renderList(state: Extract<ThreadsHostToWebviewMessage, { type: 'threads
     pendingThreadGroupFocusId = undefined;
   }
   screen = 'list';
-  conversationTarget = undefined;
-  conversationThreadId = undefined;
+  resetConversationContext();
   app.replaceChildren();
+  app.setAttribute('aria-live', 'polite');
   app.setAttribute('aria-busy', 'false');
 
   if (!state.hasWorkspace) {
@@ -310,7 +395,12 @@ function renderThreadCard(thread: ThreadListItemViewModel): HTMLElement {
   return card;
 }
 
-function showConversationShell(threadId: string, title: string, focusBack = false): void {
+function showConversationShell(
+  threadId: string,
+  title: string,
+  focusBack = false,
+  sessionId?: string
+): void {
   screen = 'conversation';
   persistState({ screen: 'conversation', selectedThreadId: threadId });
 
@@ -320,12 +410,21 @@ function showConversationShell(threadId: string, title: string, focusBack = fals
       'aria-label',
       `Reload conversation: ${title}`
     );
+    if (sessionId && sessionId !== conversationSessionId) {
+      beginConversationSession(sessionId);
+    }
+    if (focusBack) {
+      focusConversationBackButton();
+    }
     return;
   }
 
+  resetConversationContext();
   app.replaceChildren();
+  app.removeAttribute('aria-live');
   app.setAttribute('aria-busy', 'false');
   conversationThreadId = threadId;
+  conversationSessionId = sessionId;
 
   const section = document.createElement('section');
   section.className = 'conversation-view';
@@ -352,12 +451,63 @@ function showConversationShell(threadId: string, title: string, focusBack = fals
   notice.setAttribute('aria-live', 'polite');
   const content = document.createElement('div');
   content.className = 'conversation-content';
-  content.setAttribute('aria-live', 'polite');
-  section.append(header, notice, content);
+  content.setAttribute('aria-label', 'Conversation transcript');
+  const announcer = document.createElement('div');
+  announcer.className = 'sr-only';
+  announcer.setAttribute('role', 'status');
+  announcer.setAttribute('aria-live', 'polite');
+  announcer.setAttribute('aria-atomic', 'true');
+
+  const composer = document.createElement('div');
+  composer.className = 'conversation-composer';
+  composer.setAttribute('role', 'group');
+  composer.setAttribute('aria-label', 'Message Codex');
+  const inputLabel = document.createElement('label');
+  inputLabel.className = 'sr-only';
+  inputLabel.htmlFor = 'conversation-composer-input';
+  inputLabel.textContent = 'Message Codex';
+  const input = document.createElement('textarea');
+  input.id = 'conversation-composer-input';
+  input.className = 'conversation-composer-input';
+  input.rows = 3;
+  input.maxLength = MAX_COMPOSER_TEXT_LENGTH;
+  input.placeholder = 'Message Codex…';
+  input.setAttribute('aria-describedby', 'conversation-composer-status conversation-composer-error');
+
+  const error = document.createElement('p');
+  error.id = 'conversation-composer-error';
+  error.className = 'conversation-composer-error';
+  error.setAttribute('role', 'alert');
+  error.hidden = true;
+
+  const footer = document.createElement('div');
+  footer.className = 'conversation-composer-footer';
+  const status = document.createElement('span');
+  status.id = 'conversation-composer-status';
+  status.className = 'conversation-composer-status';
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  status.setAttribute('aria-atomic', 'true');
+  const controls = document.createElement('div');
+  controls.className = 'conversation-composer-controls';
+  const stop = actionButton('Stop', 'stop');
+  stop.className = 'conversation-stop';
+  stop.setAttribute('aria-label', 'Stop the active Codex turn');
+  stop.hidden = true;
+  const send = actionButton('Send', 'send');
+  send.className = 'conversation-send';
+  send.title = 'Send (Ctrl/Cmd+Enter)';
+  controls.append(stop, send);
+  footer.append(status, controls);
+  composer.append(inputLabel, input, error, footer);
+
+  section.append(header, notice, content, announcer, composer);
   app.append(section);
   conversationTarget = { title: titleElement, meta, notice, content };
+  conversationComposerTarget = { container: composer, input, send, stop, status, error, announcer };
+  updateConversationComposer();
   if (focusBack) {
-    requestAnimationFrame(() => back.focus());
+    requestAnimationFrame(() => back.focus({ preventScroll: true }));
   }
 }
 
@@ -365,6 +515,366 @@ function persistConversation(model: ConversationViewModel): void {
   persistState({
     screen: 'conversation',
     selectedThreadId: model.threadId
+  });
+}
+
+function beginConversationSession(sessionId: string): void {
+  if (pendingConversationFrame !== undefined) {
+    cancelAnimationFrame(pendingConversationFrame);
+    pendingConversationFrame = undefined;
+  }
+  conversationSessionId = sessionId;
+  conversationScreenState = undefined;
+  pendingConversationState = undefined;
+  lastConversationRevision = -1;
+  lastAnnouncedCompletedTurnId = undefined;
+  pendingConversationSend = undefined;
+  pendingConversationStopRequestId = undefined;
+  clearConversationOperationError();
+  updateConversationComposer();
+}
+
+function resetConversationContext(): void {
+  if (pendingConversationFrame !== undefined) {
+    cancelAnimationFrame(pendingConversationFrame);
+  }
+  conversationTarget = undefined;
+  conversationComposerTarget = undefined;
+  conversationThreadId = undefined;
+  conversationSessionId = undefined;
+  conversationScreenState = undefined;
+  pendingConversationState = undefined;
+  pendingConversationFrame = undefined;
+  lastConversationRevision = -1;
+  hasRenderedConversation = false;
+  lastAnnouncedCompletedTurnId = undefined;
+  pendingConversationSend = undefined;
+  pendingConversationStopRequestId = undefined;
+}
+
+function queueConversationState(state: ConversationScreenState): void {
+  if (
+    !isActiveConversation(state.sessionId, state.model.threadId) ||
+    state.revision <= lastConversationRevision
+  ) {
+    return;
+  }
+  lastConversationRevision = state.revision;
+  conversationScreenState = state;
+  pendingConversationState = state;
+  persistConversation(state.model);
+  updateConversationComposer();
+  if (pendingConversationFrame === undefined) {
+    pendingConversationFrame = requestAnimationFrame(renderPendingConversationState);
+  }
+}
+
+function renderPendingConversationState(): void {
+  pendingConversationFrame = undefined;
+  const state = pendingConversationState;
+  pendingConversationState = undefined;
+  if (!state || !isActiveConversation(state.sessionId, state.model.threadId)) {
+    return;
+  }
+
+  const initialRender = !hasRenderedConversation;
+  const followLatest = initialRender || isNearConversationBottom();
+  const target = requireConversationTarget();
+  renderConversation(target, state.model);
+  announceCompletedConversationTurn(state.model, initialRender);
+  if (state.notice?.trim()) {
+    target.notice.hidden = false;
+    target.notice.className = 'notice';
+    target.notice.textContent = state.notice;
+  }
+  app.querySelector<HTMLButtonElement>('[data-action="reload"]')?.setAttribute(
+    'aria-label',
+    `Reload conversation: ${state.model.title}`
+  );
+  hasRenderedConversation = true;
+  if (followLatest) {
+    window.scrollTo({ top: document.documentElement.scrollHeight });
+  }
+  if (initialRender) {
+    requestAnimationFrame(() => {
+      const composer = conversationComposerTarget;
+      if (
+        composer &&
+        !composer.input.disabled &&
+        (document.activeElement === document.body || document.activeElement === app)
+      ) {
+        composer.input.focus({ preventScroll: true });
+      }
+    });
+  }
+}
+
+function submitConversation(): void {
+  const target = conversationComposerTarget;
+  const state = conversationScreenState;
+  const sessionId = conversationSessionId;
+  const threadId = conversationThreadId;
+  if (
+    !target ||
+    !state ||
+    !sessionId ||
+    !threadId ||
+    state.execution.kind !== 'idle' ||
+    pendingConversationSend
+  ) {
+    return;
+  }
+  const text = target.input.value;
+  if (!isValidComposerText(text)) {
+    return;
+  }
+
+  const requestId = createConversationRequestId();
+  pendingConversationSend = { requestId, text };
+  clearConversationOperationError();
+  updateConversationComposer();
+  vscode.postMessage({
+    type: 'threads/conversation/send',
+    sessionId,
+    threadId,
+    requestId,
+    text
+  });
+}
+
+function stopConversation(): void {
+  const state = conversationScreenState;
+  const sessionId = conversationSessionId;
+  const threadId = conversationThreadId;
+  if (
+    !state ||
+    !sessionId ||
+    !threadId ||
+    state.execution.kind !== 'running' ||
+    pendingConversationStopRequestId
+  ) {
+    return;
+  }
+
+  const requestId = createConversationRequestId();
+  pendingConversationStopRequestId = requestId;
+  clearConversationOperationError();
+  updateConversationComposer();
+  vscode.postMessage({
+    type: 'threads/conversation/stop',
+    sessionId,
+    threadId,
+    requestId
+  });
+}
+
+function handleConversationOperationResult(message: ConversationOperationResult): void {
+  if (!isActiveConversation(message.sessionId, message.threadId)) {
+    return;
+  }
+  const target = conversationComposerTarget;
+  if (!target) {
+    return;
+  }
+
+  if (message.operation === 'send') {
+    const pending = pendingConversationSend;
+    if (!pending || pending.requestId !== message.requestId) {
+      return;
+    }
+    pendingConversationSend = undefined;
+    if (message.outcome === 'accepted') {
+      if (target.input.value === pending.text) {
+        target.input.value = '';
+      }
+      clearConversationOperationError();
+    } else {
+      showConversationOperationError(message.message);
+      requestAnimationFrame(() => target.input.focus());
+    }
+  } else {
+    if (pendingConversationStopRequestId !== message.requestId) {
+      return;
+    }
+    pendingConversationStopRequestId = undefined;
+    if (message.outcome === 'accepted') {
+      clearConversationOperationError();
+    } else {
+      showConversationOperationError(message.message);
+      requestAnimationFrame(() => {
+        if (!target.stop.hidden) {
+          target.stop.focus();
+        }
+      });
+    }
+  }
+  updateConversationComposer();
+}
+
+function updateConversationComposer(): void {
+  const target = conversationComposerTarget;
+  if (!target) {
+    return;
+  }
+  const execution = conversationScreenState?.execution;
+  const hasState = Boolean(conversationScreenState && conversationSessionId);
+  const unavailable = execution?.kind === 'unavailable';
+  target.input.disabled = !hasState || unavailable;
+  target.input.readOnly = Boolean(pendingConversationSend);
+  const canSend = Boolean(
+    execution?.kind === 'idle' &&
+    !pendingConversationSend &&
+    isValidComposerText(target.input.value)
+  );
+  target.send.disabled = !hasState || unavailable;
+  target.send.setAttribute('aria-disabled', String(!canSend));
+  target.send.classList.toggle('is-disabled', !canSend);
+
+  const stopVisible = (
+    execution?.kind === 'running' ||
+    execution?.kind === 'stopping' ||
+    Boolean(pendingConversationStopRequestId)
+  );
+  const moveFocusFromStop = !stopVisible &&
+    !target.stop.hidden &&
+    document.activeElement === target.stop;
+  target.stop.hidden = !stopVisible;
+  const canStop = execution?.kind === 'running' &&
+    !pendingConversationSend &&
+    !pendingConversationStopRequestId;
+  target.stop.disabled = false;
+  target.stop.setAttribute('aria-disabled', String(!canStop));
+  target.stop.classList.toggle('is-disabled', !canStop);
+  target.stop.textContent = execution?.kind === 'stopping' || pendingConversationStopRequestId
+    ? 'Stopping…'
+    : 'Stop';
+  target.container.setAttribute(
+    'aria-busy',
+    String(Boolean(pendingConversationSend || pendingConversationStopRequestId))
+  );
+
+  const status = conversationStatus(execution);
+  if (target.status.textContent !== status) {
+    target.status.textContent = status;
+  }
+  if (moveFocusFromStop) {
+    requestAnimationFrame(() => focusAfterConversationStop(target));
+  }
+}
+
+function announceCompletedConversationTurn(
+  model: ConversationViewModel,
+  initialRender: boolean
+): void {
+  const completed = [...model.turns]
+    .reverse()
+    .find((turn) => turn.status !== 'In progress');
+  if (!completed) {
+    return;
+  }
+  if (initialRender) {
+    lastAnnouncedCompletedTurnId = completed.id;
+    return;
+  }
+  if (completed.id === lastAnnouncedCompletedTurnId) {
+    return;
+  }
+  lastAnnouncedCompletedTurnId = completed.id;
+  const response = [...completed.items]
+    .reverse()
+    .find((item) => item.kind === 'message' && item.role === 'assistant');
+  const suffix = response?.kind === 'message' && response.text.trim()
+    ? ` ${response.text.trim().slice(0, 500)}`
+    : '';
+  const announcer = conversationComposerTarget?.announcer;
+  if (announcer) {
+    announcer.textContent = `Codex response complete.${suffix}`;
+  }
+}
+
+function focusAfterConversationStop(target: ConversationComposerTarget): void {
+  if (
+    conversationComposerTarget !== target ||
+    (document.activeElement !== document.body && document.activeElement !== target.stop)
+  ) {
+    return;
+  }
+  if (!target.input.disabled) {
+    target.input.focus();
+    return;
+  }
+  app.querySelector<HTMLButtonElement>('[data-action="reload"]')?.focus();
+  if (document.activeElement === document.body) {
+    app.querySelector<HTMLButtonElement>('[data-action="back"]')?.focus();
+  }
+}
+
+function conversationStatus(execution: ConversationExecutionViewModel | undefined): string {
+  if (pendingConversationStopRequestId) {
+    return 'Stopping the active turn…';
+  }
+  if (pendingConversationSend) {
+    return 'Sending message…';
+  }
+  switch (execution?.kind) {
+    case 'idle':
+      return 'Ctrl/Cmd+Enter to send.';
+    case 'resuming':
+      return 'Resuming conversation…';
+    case 'starting':
+      return 'Starting a new turn…';
+    case 'running':
+      return 'Codex is responding…';
+    case 'stopping':
+      return 'Stopping the active turn…';
+    case 'unavailable':
+      return execution.message;
+    default:
+      return 'Loading conversation…';
+  }
+}
+
+function showConversationOperationError(message: string): void {
+  const error = conversationComposerTarget?.error;
+  if (!error) {
+    return;
+  }
+  error.textContent = message;
+  error.hidden = false;
+}
+
+function clearConversationOperationError(): void {
+  const error = conversationComposerTarget?.error;
+  if (!error) {
+    return;
+  }
+  error.textContent = '';
+  error.hidden = true;
+}
+
+function isActiveConversation(sessionId: string, threadId: string): boolean {
+  return (
+    screen === 'conversation' &&
+    conversationSessionId === sessionId &&
+    conversationThreadId === threadId
+  );
+}
+
+function isNearConversationBottom(): boolean {
+  return document.documentElement.scrollHeight - (window.scrollY + window.innerHeight) <= 64;
+}
+
+function isValidComposerText(value: string): boolean {
+  return Boolean(value.trim()) && value.length <= MAX_COMPOSER_TEXT_LENGTH;
+}
+
+function createConversationRequestId(): string {
+  return crypto.randomUUID();
+}
+
+function focusConversationBackButton(): void {
+  requestAnimationFrame(() => {
+    app.querySelector<HTMLButtonElement>('[data-action="back"]')?.focus({ preventScroll: true });
   });
 }
 
@@ -491,7 +1001,7 @@ function requireConversationTarget(): ConversationRenderTarget {
 
 function actionButton(
   label: string,
-  action: ThreadListAction | 'open' | 'back' | 'reload',
+  action: ThreadListAction | 'open' | 'back' | 'reload' | 'send' | 'stop',
   threadId?: string
 ): HTMLButtonElement {
   const result = document.createElement('button');

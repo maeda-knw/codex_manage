@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  parseConversationNotification,
   parseInitializeResponse,
   parseThreadListResponse,
   parseThreadReadResponse
@@ -102,5 +103,69 @@ test('rejects non-finite timestamps, invalid statuses, and malformed cursors', (
       backwardsCursor: null
     }),
     /invalid thread\/list response/u
+  );
+});
+
+test('parses the conversation error notification and ignores unrelated notifications', () => {
+  const notification = parseConversationNotification('error', {
+    error: {
+      message: 'Temporary stream failure',
+      codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 503 } },
+      additionalDetails: null
+    },
+    willRetry: true,
+    threadId: 'thread-1',
+    turnId: 'turn-1'
+  });
+
+  assert.equal(notification?.method, 'error');
+  if (notification?.method === 'error') {
+    assert.equal(notification.params.willRetry, true);
+    assert.equal(notification.params.error.message, 'Temporary stream failure');
+  }
+  assert.equal(
+    parseConversationNotification('thread/name/updated', {
+      threadId: 'thread-1',
+      threadName: 'Renamed'
+    }),
+    undefined
+  );
+});
+
+test('rejects malformed params for recognized conversation notifications', () => {
+  assert.throws(
+    () => parseConversationNotification('item/started', {
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      item: {
+        type: 'agentMessage',
+        id: 'agent-1',
+        text: '',
+        phase: null,
+        memoryCitation: null
+      },
+      startedAtMs: Number.NaN
+    }),
+    /invalid item\/started notification params/u
+  );
+  assert.throws(
+    () => parseConversationNotification('thread/status/changed', {
+      threadId: 'thread-1',
+      status: { type: 'active', activeFlags: ['unknownFlag'] }
+    }),
+    /invalid thread\/status\/changed notification params/u
+  );
+  assert.throws(
+    () => parseConversationNotification('error', {
+      error: {
+        message: 'Bad error shape',
+        codexErrorInfo: 'not-a-generated-error-code',
+        additionalDetails: null
+      },
+      willRetry: false,
+      threadId: 'thread-1',
+      turnId: 'turn-1'
+    }),
+    /invalid error notification params/u
   );
 });

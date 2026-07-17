@@ -20,15 +20,24 @@ import type { ThreadListParams } from './protocol/generated/v2/ThreadListParams'
 import type { ThreadListResponse } from './protocol/generated/v2/ThreadListResponse';
 import type { ThreadReadParams } from './protocol/generated/v2/ThreadReadParams';
 import type { ThreadReadResponse } from './protocol/generated/v2/ThreadReadResponse';
+import type { ThreadResumeParams } from './protocol/generated/v2/ThreadResumeParams';
+import type { ThreadResumeResponse } from './protocol/generated/v2/ThreadResumeResponse';
 import type { ThreadSetNameParams } from './protocol/generated/v2/ThreadSetNameParams';
 import type { ThreadUnarchiveParams } from './protocol/generated/v2/ThreadUnarchiveParams';
+import type { TurnInterruptParams } from './protocol/generated/v2/TurnInterruptParams';
+import type { TurnInterruptResponse } from './protocol/generated/v2/TurnInterruptResponse';
+import type { TurnStartParams } from './protocol/generated/v2/TurnStartParams';
+import type { TurnStartResponse } from './protocol/generated/v2/TurnStartResponse';
 import { GENERATED_CODEX_CLI_VERSION } from './protocol/generated/version';
 import {
   isJsonObject,
   isRequestId,
   parseInitializeResponse,
   parseThreadListResponse,
-  parseThreadReadResponse
+  parseThreadReadResponse,
+  parseThreadResumeResponse,
+  parseTurnInterruptResponse,
+  parseTurnStartResponse
 } from './protocol/guards';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
@@ -176,6 +185,36 @@ export class AppServerClient {
       return parseThreadReadResponse(result, params.threadId);
     } catch (error) {
       throw this.classifyRequiredProtocolError(error, 'thread/read failed.');
+    }
+  }
+
+  public async resumeThread(params: ThreadResumeParams): Promise<ThreadResumeResponse> {
+    await this.connect();
+    try {
+      const result = await this.sendRequest((id) => ({ method: 'thread/resume', id, params }));
+      return parseThreadResumeResponse(result, params.threadId);
+    } catch (error) {
+      throw this.classifyRequiredProtocolError(error, 'thread/resume failed.');
+    }
+  }
+
+  public async startTurn(params: TurnStartParams): Promise<TurnStartResponse> {
+    await this.connect();
+    try {
+      const result = await this.sendRequest((id) => ({ method: 'turn/start', id, params }));
+      return parseTurnStartResponse(result);
+    } catch (error) {
+      throw this.classifyRequiredProtocolError(error, 'turn/start failed.');
+    }
+  }
+
+  public async interruptTurn(params: TurnInterruptParams): Promise<TurnInterruptResponse> {
+    await this.connect();
+    try {
+      const result = await this.sendRequest((id) => ({ method: 'turn/interrupt', id, params }));
+      return parseTurnInterruptResponse(result);
+    } catch (error) {
+      throw this.classifyRequiredProtocolError(error, 'turn/interrupt failed.');
     }
   }
 

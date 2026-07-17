@@ -1,13 +1,25 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import * as vscode from 'vscode';
-import type { Thread } from '../codex/protocol/generated/v2/Thread';
+import type { AppServerNotification } from '../codex/appServerClient';
+import {
+  isJsonObject,
+  parseConversationNotification,
+  type ConversationNotification
+} from '../codex/protocol/guards';
 import type { ThreadPageState, ThreadRepositorySnapshot } from '../codex/threadRepository';
 import { asError } from '../common/errors';
 import { conversationErrorMessage } from '../conversation/conversationPanelManager';
-import { toConversationViewModel } from '../conversation/conversationViewModel';
+import {
+  ConversationSession,
+  type ConversationSessionClient,
+  type ConversationSessionSnapshot
+} from '../conversation/conversationSession';
 import {
   isThreadsWebviewMessage,
   restoreThreadsWebviewState,
+  type ConversationExecutionViewModel,
+  type ConversationOperation,
+  type ConversationScreenState,
   type ThreadListAction,
   type ThreadListPageViewModel,
   type ThreadListSnapshotViewModel,
@@ -31,9 +43,29 @@ export interface ThreadListWebviewLogger {
 
 export interface ThreadListWebviewProviderOptions {
   readonly extensionUri: vscode.Uri;
-  readonly readThread: (threadId: string) => Promise<Thread>;
+  readonly conversationClient: ConversationSessionClient;
   readonly logger: ThreadListWebviewLogger;
 }
+
+interface PendingConversationLoad {
+  readonly generation: number;
+  readonly sessionId: string;
+  readonly threadId: string;
+  readonly notifications: ConversationNotification[];
+  overflowed: boolean;
+  malformed: boolean;
+}
+
+interface PendingConversationPost {
+  readonly generation: number;
+  readonly sessionId: string;
+  readonly threadId: string;
+  readonly session: ConversationSession;
+  readonly snapshot: ConversationSessionSnapshot;
+}
+
+const MAX_BUFFERED_CONVERSATION_NOTIFICATIONS = 512;
+const CONVERSATION_POST_INTERVAL_MS = 16;
 
 export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | undefined;
@@ -45,6 +77,13 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
   };
   private status: ConnectionStatus = { kind: 'idle' };
   private activeThread: { readonly id: string; readonly title: string } | undefined;
+  private readonly conversationSessions = new Map<string, ConversationSession>();
+  private conversationSession: ConversationSession | undefined;
+  private conversationSessionId: string | undefined;
+  private conversationSubscription: { dispose(): void } | undefined;
+  private pendingConversationLoad: PendingConversationLoad | undefined;
+  private pendingConversationPost: PendingConversationPost | undefined;
+  private conversationPostTimer: ReturnType<typeof setTimeout> | undefined;
   private pendingRestoreThreadId: string | undefined;
   private viewReady = false;
   private generation = 0;
@@ -57,6 +96,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     context: vscode.WebviewViewResolveContext<unknown>
   ): void {
     this.disposeViewListeners();
+    this.clearConversationSession();
     this.generation += 1;
     this.activeThread = undefined;
     this.viewReady = false;
@@ -98,8 +138,25 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
             return;
           case 'threads/reload':
             if (this.activeThread) {
-              this.openConversation(this.activeThread.id);
+              this.reloadConversation();
             }
+            return;
+          case 'threads/conversation/send':
+            this.runConversationOperation(
+              'send',
+              message.sessionId,
+              message.threadId,
+              message.requestId,
+              message.text
+            );
+            return;
+          case 'threads/conversation/stop':
+            this.runConversationOperation(
+              'stop',
+              message.sessionId,
+              message.threadId,
+              message.requestId
+            );
             return;
           case 'threads/action':
             this.executeAction(message.action, message.threadId);
@@ -110,6 +167,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
           return;
         }
         this.generation += 1;
+        this.clearConversationSession();
         this.activeThread = undefined;
         this.pendingRestoreThreadId = undefined;
         this.viewReady = false;
@@ -121,21 +179,101 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
 
   public setSnapshot(snapshot: ThreadRepositorySnapshot): void {
     this.snapshot = snapshot;
+    for (const [threadId, session] of this.conversationSessions) {
+      const reference = this.findThread(threadId);
+      if (reference) {
+        session.updateTitle(reference.title);
+      }
+    }
     if (!this.resolvePendingRestore() && !this.activeThread) {
       this.postListState();
     }
   }
 
   public setConnectionStatus(status: ConnectionStatus): void {
+    const previousStatus = this.status;
     this.status = status;
+    if (status.kind === 'error') {
+      for (const session of this.conversationSessions.values()) {
+        session.markDisconnected();
+      }
+    }
+    if (this.conversationSession) {
+      if (
+        status.kind === 'ready' &&
+        (previousStatus.kind === 'error' || this.conversationSession.snapshot().sync !== 'ready')
+      ) {
+        this.resyncConversation();
+      }
+    }
     if (!this.resolvePendingRestore() && !this.activeThread) {
       this.postListState();
     }
   }
 
+  public handleNotification(notification: AppServerNotification): void {
+    const threadId = isJsonObject(notification.params) &&
+      typeof notification.params.threadId === 'string'
+      ? notification.params.threadId
+      : undefined;
+
+    try {
+      const parsed = parseConversationNotification(notification.method, notification.params);
+      if (!parsed) {
+        return;
+      }
+      const session = this.conversationSessions.get(parsed.params.threadId);
+      if (session) {
+        session.applyNotification(parsed);
+        return;
+      }
+      const pending = this.pendingConversationLoad;
+      if (pending?.threadId === parsed.params.threadId) {
+        if (pending.notifications.length < MAX_BUFFERED_CONVERSATION_NOTIFICATIONS) {
+          pending.notifications.push(parsed);
+        } else {
+          pending.overflowed = true;
+        }
+      }
+    } catch (error) {
+      this.options.logger.appendLine(
+        `[threads] Ignored malformed ${notification.method} notification: ${asError(error).message}`
+      );
+      if (threadId) {
+        this.conversationSessions.get(threadId)?.markDisconnected();
+        if (this.pendingConversationLoad?.threadId === threadId) {
+          this.pendingConversationLoad.malformed = true;
+        }
+      }
+    }
+  }
+
+  public markConversationDisconnected(): void {
+    for (const session of this.conversationSessions.values()) {
+      session.markDisconnected();
+    }
+  }
+
+  public resetWorkspace(): void {
+    this.generation += 1;
+    this.clearConversationSession();
+    this.disposeConversationSessions();
+    this.activeThread = undefined;
+    this.pendingRestoreThreadId = undefined;
+    this.snapshot = {
+      pinned: { threads: [], nextCursor: null, loaded: true },
+      active: { threads: [], nextCursor: null, loaded: false },
+      archive: { threads: [], nextCursor: null, loaded: false }
+    };
+    this.post({ type: 'threads/showList' });
+    this.postListState();
+  }
+
   public dispose(): void {
     this.disposed = true;
     this.generation += 1;
+    this.clearConversationSession();
+    this.disposeConversationSessions();
     this.activeThread = undefined;
     this.pendingRestoreThreadId = undefined;
     this.viewReady = false;
@@ -145,6 +283,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
 
   private showList(): void {
     this.generation += 1;
+    this.clearConversationSession();
     this.activeThread = undefined;
     this.pendingRestoreThreadId = undefined;
     this.post({ type: 'threads/showList' });
@@ -163,53 +302,211 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
       return;
     }
 
+    this.clearConversationSession();
     const generation = ++this.generation;
+    const sessionId = randomUUID();
+    this.conversationSessionId = sessionId;
     this.activeThread = { id: reference.id, title: reference.title };
     this.post({
       type: 'threads/conversationLoading',
+      sessionId,
       threadId: reference.id,
       title: reference.title
     });
 
-    void this.options.readThread(reference.id).then(
-      (thread) => {
-        if (!this.isCurrentConversation(generation, reference.id)) {
+    const existing = this.conversationSessions.get(reference.id);
+    if (existing) {
+      this.attachConversationSession(existing, generation, sessionId, reference);
+      if (this.status.kind === 'ready' && existing.snapshot().sync !== 'ready') {
+        this.resyncConversation();
+      }
+      return;
+    }
+
+    const pendingLoad: PendingConversationLoad = {
+      generation,
+      sessionId,
+      threadId: reference.id,
+      notifications: [],
+      overflowed: false,
+      malformed: false
+    };
+    this.pendingConversationLoad = pendingLoad;
+
+    void this.options.conversationClient.readThread({
+      threadId: reference.id,
+      includeTurns: true
+    }).then(
+      ({ thread }) => {
+        if (
+          !this.isCurrentConversation(generation, reference.id, sessionId) ||
+          this.pendingConversationLoad !== pendingLoad
+        ) {
           return;
         }
-        const model = toConversationViewModel(thread);
-        if (model.threadId !== reference.id) {
+        if (thread.id !== reference.id) {
+          this.pendingConversationLoad = undefined;
           this.options.logger.appendLine(
-            `[threads] Ignored mismatched sidebar history ${model.threadId} for ${reference.id}.`
+            `[threads] Ignored mismatched sidebar history ${thread.id} for ${reference.id}.`
           );
           this.post({
             type: 'threads/conversationError',
+            sessionId,
             threadId: reference.id,
             title: reference.title,
             message: 'This Codex CLI returned an incompatible conversation history response.'
           });
           return;
         }
-        this.activeThread = { id: model.threadId, title: model.title };
-        this.post({ type: 'threads/conversationLoaded', model });
-        this.options.logger.appendLine(
-          `[threads] Loaded ${model.turns.length} turn(s) for sidebar thread ${model.threadId}.`
-        );
+
+        const session = new ConversationSession(this.options.conversationClient, thread);
+        for (const buffered of pendingLoad.notifications) {
+          session.applyNotification(buffered);
+        }
+        if (pendingLoad.overflowed || pendingLoad.malformed) {
+          session.markDisconnected();
+          this.options.logger.appendLine(
+            `[threads] Sidebar thread ${reference.id} requires reload after notification buffering.`
+          );
+        }
+        this.pendingConversationLoad = undefined;
+        this.conversationSessions.set(reference.id, session);
+        this.attachConversationSession(session, generation, sessionId, reference);
       },
       (error: unknown) => {
-        if (!this.isCurrentConversation(generation, reference.id)) {
+        if (
+          !this.isCurrentConversation(generation, reference.id, sessionId) ||
+          this.pendingConversationLoad !== pendingLoad
+        ) {
           return;
         }
+        this.pendingConversationLoad = undefined;
         this.options.logger.appendLine(
           `[threads] Could not load sidebar thread ${reference.id}: ${asError(error).message}`
         );
         this.post({
           type: 'threads/conversationError',
+          sessionId,
           threadId: reference.id,
           title: reference.title,
           message: conversationErrorMessage(error)
         });
       }
     );
+  }
+
+  private attachConversationSession(
+    session: ConversationSession,
+    generation: number,
+    sessionId: string,
+    reference: { readonly id: string; readonly title: string }
+  ): void {
+    let initialSnapshot: ConversationSessionSnapshot | undefined;
+    let loaded = false;
+    this.conversationSession = session;
+    this.conversationSubscription = session.subscribe((snapshot) => {
+      if (!loaded) {
+        initialSnapshot = snapshot;
+        return;
+      }
+      if (
+        this.isCurrentConversation(generation, reference.id, sessionId) &&
+        this.conversationSession === session
+      ) {
+        this.queueConversationStatePost({
+          generation,
+          sessionId,
+          threadId: reference.id,
+          session,
+          snapshot
+        });
+      }
+    });
+    const snapshot = initialSnapshot ?? session.snapshot();
+    this.activeThread = { id: snapshot.model.threadId, title: snapshot.model.title };
+    loaded = true;
+    this.post({
+      type: 'threads/conversationLoaded',
+      state: toConversationScreenState(sessionId, snapshot)
+    });
+    this.options.logger.appendLine(
+      `[threads] Loaded ${snapshot.model.turns.length} turn(s) for sidebar thread ${snapshot.model.threadId}.`
+    );
+  }
+
+  private reloadConversation(): void {
+    if (!this.conversationSession) {
+      if (this.activeThread) {
+        this.openConversation(this.activeThread.id);
+      }
+      return;
+    }
+    this.resyncConversation();
+  }
+
+  private resyncConversation(): void {
+    const session = this.conversationSession;
+    const sessionId = this.conversationSessionId;
+    const threadId = this.activeThread?.id;
+    const generation = this.generation;
+    if (!session || !sessionId || !threadId) {
+      return;
+    }
+
+    void session.resync().then((resynced) => {
+      if (!this.isCurrentConversation(generation, threadId, sessionId) || !resynced) {
+        return;
+      }
+      this.status = { kind: 'ready' };
+      this.options.logger.appendLine(`[threads] Re-synchronized sidebar thread ${threadId}.`);
+    });
+  }
+
+  private runConversationOperation(
+    operation: ConversationOperation,
+    sessionId: string,
+    threadId: string,
+    requestId: string,
+    text?: string
+  ): void {
+    const session = this.conversationSession;
+    if (!session || !this.isCurrentSession(sessionId, threadId)) {
+      this.options.logger.appendLine(
+        `[threads] Ignored stale ${operation} request for sidebar thread ${threadId}.`
+      );
+      return;
+    }
+
+    const generation = this.generation;
+    const result = operation === 'send'
+      ? session.send(text ?? '')
+      : session.stop();
+    void result.then((accepted) => {
+      if (!this.isCurrentConversation(generation, threadId, sessionId)) {
+        return;
+      }
+      this.flushConversationStatePost();
+      this.post(accepted
+        ? {
+          type: 'threads/conversationOperationResult',
+          sessionId,
+          threadId,
+          requestId,
+          operation,
+          outcome: 'accepted'
+        }
+        : {
+          type: 'threads/conversationOperationResult',
+          sessionId,
+          threadId,
+          requestId,
+          operation,
+          outcome: 'rejected',
+          message: operation === 'send'
+            ? 'The message could not be sent. Reload the conversation and try again.'
+            : 'The running turn could not be stopped. Reload the conversation and try again.'
+        });
+    });
   }
 
   private executeAction(action: ThreadListAction, threadId?: string): void {
@@ -252,13 +549,76 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     return true;
   }
 
-  private isCurrentConversation(generation: number, threadId: string): boolean {
+  private isCurrentConversation(
+    generation: number,
+    threadId: string,
+    sessionId?: string
+  ): boolean {
     return (
       !this.disposed &&
       Boolean(this.view) &&
       generation === this.generation &&
+      this.activeThread?.id === threadId &&
+      (sessionId === undefined || this.conversationSessionId === sessionId)
+    );
+  }
+
+  private isCurrentSession(sessionId: string, threadId: string): boolean {
+    return (
+      this.conversationSessionId === sessionId &&
       this.activeThread?.id === threadId
     );
+  }
+
+  private clearConversationSession(): void {
+    this.conversationSubscription?.dispose();
+    this.conversationSubscription = undefined;
+    this.conversationSession = undefined;
+    this.conversationSessionId = undefined;
+    this.pendingConversationLoad = undefined;
+    this.pendingConversationPost = undefined;
+    if (this.conversationPostTimer !== undefined) {
+      clearTimeout(this.conversationPostTimer);
+      this.conversationPostTimer = undefined;
+    }
+  }
+
+  private queueConversationStatePost(pending: PendingConversationPost): void {
+    this.pendingConversationPost = pending;
+    if (this.conversationPostTimer !== undefined) {
+      return;
+    }
+    this.conversationPostTimer = setTimeout(() => {
+      this.conversationPostTimer = undefined;
+      this.flushConversationStatePost();
+    }, CONVERSATION_POST_INTERVAL_MS);
+  }
+
+  private flushConversationStatePost(): void {
+    if (this.conversationPostTimer !== undefined) {
+      clearTimeout(this.conversationPostTimer);
+      this.conversationPostTimer = undefined;
+    }
+    const latest = this.pendingConversationPost;
+    this.pendingConversationPost = undefined;
+    if (
+      !latest ||
+      !this.isCurrentConversation(latest.generation, latest.threadId, latest.sessionId) ||
+      this.conversationSession !== latest.session
+    ) {
+      return;
+    }
+    this.post({
+      type: 'threads/conversationState',
+      state: toConversationScreenState(latest.sessionId, latest.snapshot)
+    });
+  }
+
+  private disposeConversationSessions(): void {
+    for (const session of this.conversationSessions.values()) {
+      session.dispose();
+    }
+    this.conversationSessions.clear();
   }
 
   private findThread(threadId: string): { readonly id: string; readonly title: string } | undefined {
@@ -340,6 +700,54 @@ function toListPage(page: ThreadPageState): ThreadListPageViewModel {
     nextCursor: page.nextCursor,
     loaded: page.loaded
   };
+}
+
+function toConversationScreenState(
+  sessionId: string,
+  snapshot: ConversationSessionSnapshot
+): ConversationScreenState {
+  const execution = toConversationExecution(snapshot);
+  return snapshot.notice
+    ? {
+      sessionId,
+      revision: snapshot.revision,
+      model: snapshot.model,
+      execution,
+      notice: snapshot.notice
+    }
+    : {
+      sessionId,
+      revision: snapshot.revision,
+      model: snapshot.model,
+      execution
+    };
+}
+
+function toConversationExecution(
+  snapshot: ConversationSessionSnapshot
+): ConversationExecutionViewModel {
+  if (snapshot.sync !== 'ready') {
+    return {
+      kind: 'unavailable',
+      message: snapshot.notice ?? 'Conversation updates are unavailable until the connection is restored.'
+    };
+  }
+  switch (snapshot.operation) {
+    case 'resuming':
+      return { kind: 'resuming' };
+    case 'starting':
+      return { kind: 'starting' };
+    case 'running':
+      return snapshot.activeTurnId
+        ? { kind: 'running', turnId: snapshot.activeTurnId }
+        : { kind: 'unavailable', message: 'The running turn is being re-synchronized.' };
+    case 'interrupting':
+      return snapshot.activeTurnId
+        ? { kind: 'stopping', turnId: snapshot.activeTurnId }
+        : { kind: 'unavailable', message: 'The running turn is being re-synchronized.' };
+    case 'idle':
+      return { kind: 'idle' };
+  }
 }
 
 function escapeAttribute(value: string): string {
