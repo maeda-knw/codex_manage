@@ -7,13 +7,14 @@ import {
   ConversationPanelManager
 } from './conversation/conversationPanelManager';
 import { PinStore } from './state/pinStore';
-import { ThreadTreeItem, ThreadTreeProvider } from './views/threadTreeProvider';
+import { ThreadTreeItem } from './views/threadTreeProvider';
+import { ThreadListWebviewProvider } from './views/threadListWebviewProvider';
 
 let activeClient: AppServerClient | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Codex Thread Manager');
-  const provider = new ThreadTreeProvider();
+  const provider = new ThreadListWebviewProvider(context.extensionUri);
   const pinStore = new PinStore(context.workspaceState);
   let probeGeneration = 0;
   let repository: ThreadRepository | undefined;
@@ -151,7 +152,7 @@ export function activate(context: vscode.ExtensionContext): void {
     provider,
     conversationPanels,
     { dispose: () => activeClient?.dispose() },
-    vscode.window.registerTreeDataProvider('codexThreadManager.threads', provider),
+    vscode.window.registerWebviewViewProvider('codexThreadManager.threads', provider),
     vscode.window.registerWebviewPanelSerializer(CONVERSATION_VIEW_TYPE, conversationPanels),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       void refreshThreads(false);
@@ -176,11 +177,11 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('codexThreadManager.loadMoreActive', () => loadMoreThreads('active')),
     vscode.commands.registerCommand('codexThreadManager.loadMoreArchive', () => loadMoreThreads('archive')),
-    vscode.commands.registerCommand('codexThreadManager.pin', (item?: ThreadTreeItem) => pinThread(item, pinStore, repository, provider)),
-    vscode.commands.registerCommand('codexThreadManager.unpin', (item?: ThreadTreeItem) => unpinThread(item, pinStore, repository, provider)),
-    vscode.commands.registerCommand('codexThreadManager.rename', (item?: ThreadTreeItem) => renameThread(item, repository, provider)),
-    vscode.commands.registerCommand('codexThreadManager.archive', (item?: ThreadTreeItem) => archiveThread(item, pinStore, repository, provider)),
-    vscode.commands.registerCommand('codexThreadManager.unarchive', (item?: ThreadTreeItem) => unarchiveThread(item, repository, provider))
+    vscode.commands.registerCommand('codexThreadManager.pin', (item?: ThreadTreeItem | string) => pinThread(item, pinStore, repository, provider)),
+    vscode.commands.registerCommand('codexThreadManager.unpin', (item?: ThreadTreeItem | string) => unpinThread(item, pinStore, repository, provider)),
+    vscode.commands.registerCommand('codexThreadManager.rename', (item?: ThreadTreeItem | string) => renameThread(item, repository, provider)),
+    vscode.commands.registerCommand('codexThreadManager.archive', (item?: ThreadTreeItem | string) => archiveThread(item, pinStore, repository, provider)),
+    vscode.commands.registerCommand('codexThreadManager.unarchive', (item?: ThreadTreeItem | string) => unarchiveThread(item, repository, provider))
   );
 
   output.appendLine('Codex Thread Manager activated.');
@@ -193,12 +194,12 @@ export function deactivate(): void {
 }
 
 async function pinThread(
-  item: ThreadTreeItem | undefined,
+  item: ThreadTreeItem | string | undefined,
   pinStore: PinStore,
   repository: ThreadRepository | undefined,
-  provider: ThreadTreeProvider
+  provider: ThreadListWebviewProvider
 ): Promise<void> {
-  const thread = item?.thread;
+  const thread = threadFromArgument(item, repository);
   if (!thread || thread.archived) {
     await vscode.window.showWarningMessage('Select an active Codex thread to pin.');
     return;
@@ -211,12 +212,12 @@ async function pinThread(
 }
 
 async function unpinThread(
-  item: ThreadTreeItem | undefined,
+  item: ThreadTreeItem | string | undefined,
   pinStore: PinStore,
   repository: ThreadRepository | undefined,
-  provider: ThreadTreeProvider
+  provider: ThreadListWebviewProvider
 ): Promise<void> {
-  const thread = item?.thread;
+  const thread = threadFromArgument(item, repository);
   if (!thread) {
     await vscode.window.showWarningMessage('Select a pinned Codex thread to unpin.');
     return;
@@ -241,11 +242,11 @@ async function pruneLoadedPins(pinStore: PinStore, repository: ThreadRepository)
 
 
 async function renameThread(
-  item: ThreadTreeItem | undefined,
+  item: ThreadTreeItem | string | undefined,
   repository: ThreadRepository | undefined,
-  provider: ThreadTreeProvider
+  provider: ThreadListWebviewProvider
 ): Promise<void> {
-  const thread = item?.thread;
+  const thread = threadFromArgument(item, repository);
   if (!thread || thread.archived || !repository) {
     await vscode.window.showWarningMessage('Select an active Codex thread to rename.');
     return;
@@ -277,12 +278,12 @@ async function renameThread(
 }
 
 async function archiveThread(
-  item: ThreadTreeItem | undefined,
+  item: ThreadTreeItem | string | undefined,
   pinStore: PinStore,
   repository: ThreadRepository | undefined,
-  provider: ThreadTreeProvider
+  provider: ThreadListWebviewProvider
 ): Promise<void> {
-  const thread = item?.thread;
+  const thread = threadFromArgument(item, repository);
   if (!thread || thread.archived || !repository) {
     await vscode.window.showWarningMessage('Select an active Codex thread to archive.');
     return;
@@ -307,11 +308,11 @@ async function archiveThread(
 }
 
 async function unarchiveThread(
-  item: ThreadTreeItem | undefined,
+  item: ThreadTreeItem | string | undefined,
   repository: ThreadRepository | undefined,
-  provider: ThreadTreeProvider
+  provider: ThreadListWebviewProvider
 ): Promise<void> {
-  const thread = item?.thread;
+  const thread = threadFromArgument(item, repository);
   if (!thread || !thread.archived || !repository) {
     await vscode.window.showWarningMessage('Select an archived Codex thread to restore.');
     return;
@@ -396,4 +397,11 @@ async function openThread(
   }
 
   conversationPanels.openThread({ id: thread.id, title: thread.title });
+}
+
+function threadFromArgument(
+  item: ThreadTreeItem | string | undefined,
+  repository: ThreadRepository | undefined
+) {
+  return typeof item === 'string' ? repository?.findThread(item) : item?.thread;
 }

@@ -17,7 +17,8 @@ const contexts = await Promise.all([
   }),
   esbuild.context({
     entryPoints: {
-      conversation: 'src/webview/conversation/main.ts'
+      conversation: 'src/webview/conversation/main.ts',
+      threads: 'src/webview/threads/main.ts'
     },
     bundle: true,
     format: 'iife',
