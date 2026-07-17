@@ -214,7 +214,7 @@ class ManagedConversationPanel {
   }
 }
 
-function conversationErrorMessage(error: unknown): string {
+export function conversationErrorMessage(error: unknown): string {
   if (error instanceof AppServerError) {
     switch (error.code) {
       case 'cli-not-found':

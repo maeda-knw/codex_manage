@@ -33,15 +33,18 @@ export async function run(): Promise<void> {
     activationEvents?: string[];
     contributes?: {
       commands?: Array<{ command?: string; icon?: string; title?: string }>;
-      views?: Record<string, Array<{ id?: string }>>;
+      views?: Record<string, Array<{ id?: string; type?: string }>>;
       menus?: {
         'view/title'?: Array<{ command?: string; group?: string; when?: string }>;
-        'view/item/context'?: Array<{ command?: string; when?: string }>;
       };
     };
     extensionKind?: string[];
   };
   assert.deepEqual(manifest.extensionKind, ['workspace']);
+  assert.equal(
+    manifest.activationEvents?.includes('onView:codexThreadManager.threads'),
+    true
+  );
   assert.equal(
     manifest.activationEvents?.includes(
       'onWebviewPanel:codexThreadManager.conversation'
@@ -50,7 +53,7 @@ export async function run(): Promise<void> {
   );
   assert.equal(
     manifest.contributes?.views?.codexThreadManager?.some(
-      (view) => view.id === 'codexThreadManager.threads'
+      (view) => view.id === 'codexThreadManager.threads' && view.type === 'webview'
     ),
     true
   );
@@ -86,23 +89,6 @@ export async function run(): Promise<void> {
     ),
     true
   );
-
-  const menuEntries = manifest.contributes?.menus?.['view/item/context'] ?? [];
-  assert.equal(
-    menuEntries.some((entry) =>
-      entry.command === 'codexThreadManager.unarchive' &&
-      entry.when?.includes('codexThreadManager.thread.archived')
-    ),
-    true
-  );
-  assert.equal(
-    menuEntries.some((entry) =>
-      entry.command === 'codexThreadManager.archive' &&
-      entry.when?.includes('codexThreadManager.thread.active')
-    ),
-    true
-  );
-
   const configuration = vscode.workspace.getConfiguration('codexThreadManager');
   assert.equal(configuration.get('codexPath'), 'codex');
   assert.equal(configuration.get('pageSize'), 50);

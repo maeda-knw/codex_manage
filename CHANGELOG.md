@@ -2,13 +2,14 @@
 
 ## Unreleased
 
-- Added vNext Phase A read-only conversation tabs backed by `thread/read(includeTurns: true)`.
-- Added thread-row selection, one-tab-per-thread reuse, panel restoration, and manual history reload.
+- Added vNext Phase A read-only conversation rendering backed by `thread/read(includeTurns: true)`.
+- Added vNext Phase A.5 list/conversation navigation inside one Codex sidebar Webview View, including Back, reload, scroll/selection restoration, and stale-read protection.
 - Added typed, CSP-protected Webview rendering for stored user/Codex messages, turn state, and summarized work cards.
 - Excluded raw reasoning content, command output, file diffs, tool payloads, delegated prompts, and hook fragments from the Webview model.
-- Added unit and fake App Server coverage for conversation mapping, protocol boundaries, panel races/restoration, CSP, and packaged Webview assets.
+- Added unit and fake App Server coverage for conversation mapping, sidebar transitions/restoration, operation boundaries, panel races, and CSP.
 - Added a view-title settings action beside Refresh Threads for quick access to the extension configuration.
-- Added vNext Phase A.5 planning for a Webview View-based thread list with larger, card-like rows.
+- Added a keyboard-accessible 48px thread-card layout with compact management menus and fixed command allowlisting.
+- Added an automated VSIX contents check so both thread-list and conversation Webview assets must be packaged.
 - Completed the private-distribution MVP through Phase 6.
 - Added workspace-scoped pinning, rename, archive, Undo, and restore operations.
 - Added notification-driven name, archive, and status updates.
