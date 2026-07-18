@@ -20,6 +20,15 @@ lines.on('line', (line) => {
     initialized = true;
     if (mode === 'server-request') {
       send({ id: 'server-request-1', method: 'fixture/approval', params: { reason: 'test' } });
+    } else if (mode === 'server-request-supported') {
+      send({
+        id: 'server-request-2',
+        method: 'item/commandExecution/requestApproval',
+        params: {
+          threadId: 'thread-1', turnId: 'turn-1', itemId: 'item-1', startedAtMs: 1,
+          command: 'npm test', cwd: '<fixture>', reason: 'test approval'
+        }
+      });
     }
   } else if (message.method === 'thread/read' && mode === 'thread-read') {
     if (message.params?.threadId !== 'thread-1' || message.params?.includeTurns !== true) {
@@ -133,6 +142,8 @@ lines.on('line', (line) => {
     // Intentionally leave the request pending.
   } else if (message.method === 'thread/list' && mode === 'server-request') {
     send({ id: message.id, result: { data: [], nextCursor: null, backwardsCursor: null } });
+  } else if (message.method === 'thread/list' && mode === 'server-request-supported') {
+    send({ id: message.id, result: { data: [], nextCursor: null, backwardsCursor: null } });
   } else if (message.method === 'thread/list' && mode === 'malformed') {
     send({ id: message.id, result: { data: 'invalid', nextCursor: null } });
   } else if (
@@ -150,6 +161,8 @@ lines.on('line', (line) => {
     }
   } else if (mode === 'server-request' && message.id === 'server-request-1' && message.error) {
     send({ method: 'fixture/serverRequestRejected', params: { code: message.error.code } });
+  } else if (mode === 'server-request-supported' && message.id === 'server-request-2' && message.result) {
+    send({ method: 'fixture/serverRequestAnswered', params: message.result });
   } else if (message.method === 'thread/list' && mode === 'operations' && initialized) {
     send({ id: message.id, result: { data: [], nextCursor: null, backwardsCursor: null } });
   } else if (message.method === 'thread/list') {

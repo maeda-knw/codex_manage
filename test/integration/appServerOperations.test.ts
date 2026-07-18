@@ -120,3 +120,23 @@ test('rejects unsupported server requests with the original request ID', async (
   assert.deepEqual((await rejected).params, { code: -32601 });
   assert.equal(logs.some((line) => line.includes('Rejected unsupported server request fixture/approval')), true);
 });
+
+test('forwards supported server requests and answers each request only once', async (t) => {
+  const logs: string[] = [];
+  const client = createClient('server-request-supported', logs);
+  t.after(() => client.dispose());
+  const request = new Promise<Parameters<Parameters<typeof client.onServerRequest>[0]>[0]>((resolveRequest) => {
+    client.onServerRequest(resolveRequest);
+  });
+  const answered = waitForNotification(
+    client,
+    (notification) => notification.method === 'fixture/serverRequestAnswered'
+  );
+
+  await client.listThreads(listParams);
+  const received = await request;
+  assert.equal(received.method, 'item/commandExecution/requestApproval');
+  assert.equal(await client.respondToServerRequest(received.id, { decision: 'decline' }), true);
+  assert.deepEqual((await answered).params, { decision: 'decline' });
+  assert.equal(await client.respondToServerRequest(received.id, { decision: 'accept' }), false);
+});

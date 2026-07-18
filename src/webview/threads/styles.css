@@ -259,6 +259,83 @@ button.thread-action:hover {
   margin: 12px 0;
 }
 
+.conversation-interactions {
+  margin: 12px 0;
+}
+
+.conversation-interaction {
+  margin: 10px 0;
+  padding: 12px;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-focusBorder));
+  border-radius: 6px;
+}
+
+.conversation-interaction h2 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.conversation-interaction p,
+.conversation-interaction ul {
+  margin: 6px 0 10px;
+}
+
+.conversation-interaction ul {
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+
+.conversation-interaction fieldset {
+  margin: 10px 0;
+  padding: 8px;
+  border: 1px solid var(--vscode-widget-border);
+}
+
+.conversation-interaction fieldset label,
+.conversation-interaction-field {
+  display: flex;
+  margin: 7px 0;
+  gap: 7px;
+  align-items: center;
+}
+
+.conversation-interaction input[type='text'],
+.conversation-interaction input[type='password'],
+.conversation-interaction input[type='number'],
+.conversation-interaction select {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 5px 6px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
+}
+
+.conversation-interaction-field {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.conversation-interaction-controls {
+  display: flex;
+  margin-top: 10px;
+  gap: 6px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.conversation-interaction-controls [data-action='interaction-accept'],
+.conversation-interaction-controls [data-action='interaction-session'] {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+.conversation-interaction-controls [data-action='interaction-accept']:hover,
+.conversation-interaction-controls [data-action='interaction-session']:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
 .conversation-view .turn {
   margin: 18px 0;
 }

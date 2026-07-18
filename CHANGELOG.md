@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added pinned Node.js/npm toolchain metadata, cache-first dependency bootstrap commands, and a dependency doctor that rejects partial npm extractions.
+- Added explicit npm install-script decisions so only the required esbuild setup script is allowed during dependency installation.
+- Added in-conversation command, file-change, and permission approval cards with one-time and session-scoped decisions.
+- Added typed responses for Codex follow-up questions and supported MCP form elicitations.
+- Added host-owned request correlation, stale-thread isolation, safe cancellation, and duplicate-response prevention for App Server requests.
 - Added vNext Phase B text conversation with `thread/resume`, `turn/start`, streamed agent-message updates, and `turn/interrupt` Stop support.
 - Added a sticky sidebar composer with Ctrl/Cmd+Enter sending, double-submit protection, correlated operation results, and draft preservation on failure.
 - Added host-owned conversation sessions and an ID-keyed reducer that isolates threads, converges on completed snapshots, and re-synchronizes history after disconnects.

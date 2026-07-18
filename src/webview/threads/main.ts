@@ -1,6 +1,7 @@
 import '../conversation/styles.css';
 import './styles.css';
 import type { ConversationViewModel } from '../../conversation/conversationViewModel';
+import type { ConversationInteractionViewModel } from '../../conversation/conversationInteraction';
 import {
   renderConversation,
   renderConversationError,
@@ -69,6 +70,7 @@ let listState: Extract<ThreadsHostToWebviewMessage, { type: 'threads/listState' 
 let screen: 'list' | 'conversation' = persistedState.screen;
 let conversationTarget: ConversationRenderTarget | undefined;
 let conversationComposerTarget: ConversationComposerTarget | undefined;
+let conversationInteractionsTarget: HTMLElement | undefined;
 let conversationThreadId: string | undefined;
 let conversationSessionId: string | undefined;
 let conversationScreenState: ConversationScreenState | undefined;
@@ -127,6 +129,10 @@ app.addEventListener('click', (event) => {
   }
   if (action === 'add') {
     toggleAddMenu();
+    return;
+  }
+  if (action?.startsWith('interaction-')) {
+    submitInteraction(element, action.slice('interaction-'.length));
     return;
   }
   if (action === 'back') {
@@ -472,6 +478,9 @@ function showConversationShell(
   const content = document.createElement('div');
   content.className = 'conversation-content';
   content.setAttribute('aria-label', 'Conversation transcript');
+  const interactions = document.createElement('section');
+  interactions.className = 'conversation-interactions';
+  interactions.setAttribute('aria-label', 'Requests requiring your attention');
   const announcer = document.createElement('div');
   announcer.className = 'sr-only';
   announcer.setAttribute('role', 'status');
@@ -555,7 +564,7 @@ function showConversationShell(
   footer.append(status, controls);
   composer.append(tools, inputLabel, input, error, footer);
 
-  section.append(header, notice, content, announcer, composer);
+  section.append(header, notice, content, interactions, announcer, composer);
   app.append(section);
   conversationTarget = { title: titleElement, meta, notice, content };
   conversationComposerTarget = {
@@ -567,6 +576,7 @@ function showConversationShell(
     sandbox: sandbox.select,
     approvalPolicy: approvalPolicy.select
   };
+  conversationInteractionsTarget = interactions;
   updateConversationComposer();
   if (focusBack) {
     requestAnimationFrame(() => back.focus({ preventScroll: true }));
@@ -602,6 +612,7 @@ function resetConversationContext(): void {
   }
   conversationTarget = undefined;
   conversationComposerTarget = undefined;
+  conversationInteractionsTarget = undefined;
   conversationThreadId = undefined;
   conversationSessionId = undefined;
   conversationScreenState = undefined;
@@ -643,6 +654,7 @@ function renderPendingConversationState(): void {
   const followLatest = initialRender || isNearConversationBottom();
   const target = requireConversationTarget();
   renderConversation(target, state.model);
+  if (conversationInteractionsTarget) renderConversationInteractions(conversationInteractionsTarget, state.interactions);
   announceCompletedConversationTurn(state.model, initialRender);
   if (state.notice?.trim()) {
     target.notice.hidden = false;
@@ -781,11 +793,12 @@ function updateConversationComposer(): void {
   const execution = conversationScreenState?.execution;
   const hasState = Boolean(conversationScreenState && conversationSessionId);
   const unavailable = execution?.kind === 'unavailable';
+  const waitingForInput = Boolean(conversationScreenState?.interactions.length);
   renderRuntimeSettings(target);
-  target.input.disabled = !hasState || unavailable;
+  target.input.disabled = !hasState || unavailable || waitingForInput;
   target.input.readOnly = Boolean(pendingConversationSend);
   const canSend = Boolean(
-    execution?.kind === 'idle' &&
+    execution?.kind === 'idle' && !waitingForInput &&
     !pendingConversationSend &&
     isValidComposerText(target.input.value)
   );
@@ -816,13 +829,180 @@ function updateConversationComposer(): void {
     String(Boolean(pendingConversationSend || pendingConversationStopRequestId))
   );
 
-  const status = conversationStatus(execution);
+  const status = waitingForInput ? 'Respond to the request above to continue.' : conversationStatus(execution);
   if (target.status.textContent !== status) {
     target.status.textContent = status;
   }
   if (moveFocusFromStop) {
     requestAnimationFrame(() => focusAfterConversationStop(target));
   }
+}
+
+function renderConversationInteractions(
+  container: HTMLElement,
+  interactions: readonly ConversationInteractionViewModel[]
+): void {
+  const cards = interactions.map((interaction) => {
+    const form = document.createElement('form');
+    form.className = `conversation-interaction conversation-interaction--${interaction.kind}`;
+    form.dataset.interactionId = interaction.id;
+    form.setAttribute('aria-labelledby', `interaction-title-${interaction.id}`);
+    const title = document.createElement('h2');
+    title.id = `interaction-title-${interaction.id}`;
+    title.textContent = interaction.title;
+    const summary = document.createElement('p');
+    summary.textContent = interaction.summary;
+    form.append(title, summary);
+
+    if (isApprovalInteraction(interaction)) {
+      const details = document.createElement('ul');
+      for (const line of interaction.detail) {
+        const item = document.createElement('li');
+        item.textContent = line;
+        details.append(item);
+      }
+      if (interaction.detail.length) form.append(details);
+      form.append(interactionControls(interaction.allowSession, true));
+    } else if (interaction.kind === 'userInput') {
+      for (const question of interaction.questions) form.append(questionField(interaction.id, question));
+      form.append(interactionControls(false, false));
+    } else {
+      for (const field of interaction.fields) form.append(mcpField(field));
+      if (!interaction.acceptsInput) {
+        const unsupported = document.createElement('p');
+        unsupported.className = 'muted';
+        unsupported.textContent = 'This request format cannot be completed here. You can decline or cancel it.';
+        form.append(unsupported);
+      }
+      form.append(interactionControls(false, false, interaction.acceptsInput));
+    }
+    return form;
+  });
+  container.replaceChildren(...cards);
+  container.hidden = cards.length === 0;
+}
+
+function interactionControls(allowSession: boolean, approval: boolean, allowAccept = true): HTMLElement {
+  const controls = document.createElement('div');
+  controls.className = 'conversation-interaction-controls';
+  const decline = actionButton('Decline', 'interaction-decline');
+  const cancel = actionButton('Cancel turn', 'interaction-cancel');
+  controls.append(decline, cancel);
+  if (allowAccept) controls.append(actionButton(approval ? 'Approve once' : 'Submit', 'interaction-accept'));
+  if (approval && allowSession) controls.append(actionButton('Approve for session', 'interaction-session'));
+  return controls;
+}
+
+function questionField(interactionId: string, question: Extract<ConversationInteractionViewModel, { kind: 'userInput' }>['questions'][number]): HTMLElement {
+  const fieldset = document.createElement('fieldset');
+  fieldset.dataset.questionId = question.id;
+  const legend = document.createElement('legend');
+  legend.textContent = question.header ? `${question.header}: ${question.question}` : question.question;
+  fieldset.append(legend);
+  if (question.options.length) {
+    for (const [index, option] of question.options.entries()) {
+      const label = document.createElement('label');
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = `question-${interactionId}-${question.id}`;
+      input.value = option.label;
+      input.required = question.required && index === 0;
+      const text = document.createElement('span');
+      text.textContent = option.description ? `${option.label} — ${option.description}` : option.label;
+      label.append(input, text);
+      fieldset.append(label);
+    }
+  }
+  if (!question.options.length || question.allowOther) {
+    const input = document.createElement('input');
+    input.className = 'interaction-answer';
+    input.type = question.secret ? 'password' : 'text';
+    input.maxLength = 10_000;
+    input.placeholder = question.options.length ? 'Other answer' : 'Your answer';
+    if (!question.options.length) input.required = question.required;
+    fieldset.append(input);
+  }
+  return fieldset;
+}
+
+function mcpField(field: Extract<ConversationInteractionViewModel, { kind: 'mcpElicitation' }>['fields'][number]): HTMLElement {
+  const label = document.createElement('label');
+  label.className = 'conversation-interaction-field';
+  label.dataset.fieldId = field.id;
+  const text = document.createElement('span');
+  text.textContent = field.label;
+  let input: HTMLInputElement | HTMLSelectElement;
+  if (field.options.length) {
+    const select = document.createElement('select');
+    select.append(new Option('Select…', ''), ...field.options.map((option) => new Option(option, option)));
+    input = select;
+  } else {
+    const element = document.createElement('input');
+    element.type = field.secret ? 'password' : field.type === 'number' ? 'number' : field.type === 'boolean' ? 'checkbox' : 'text';
+    input = element;
+  }
+  input.required = field.required;
+  input.setAttribute('aria-description', field.description);
+  label.append(text, input);
+  return label;
+}
+
+function submitInteraction(element: HTMLElement, action: string): void {
+  const form = element.closest<HTMLFormElement>('.conversation-interaction');
+  const state = conversationScreenState;
+  const sessionId = conversationSessionId;
+  const threadId = conversationThreadId;
+  const interactionId = form?.dataset.interactionId;
+  if (!form || !state || !sessionId || !threadId || !interactionId) return;
+  const interaction = state.interactions.find((candidate) => candidate.id === interactionId);
+  if (!interaction) return;
+
+  let reply: unknown;
+  if (isApprovalInteraction(interaction)) {
+    reply = { kind: 'approval', decision: action === 'session' ? 'acceptForSession' : action === 'accept' ? 'accept' : action === 'decline' ? 'decline' : 'cancel' };
+  } else if (interaction.kind === 'userInput') {
+    if (action === 'decline' || action === 'cancel') {
+      const fallback: Record<string, string[]> = {};
+      for (const question of interaction.questions) fallback[question.id] = [action === 'decline' ? 'Declined' : 'Cancelled'];
+      reply = { kind: 'userInput', answers: fallback };
+    } else {
+      if (!form.reportValidity()) return;
+      const answers: Record<string, string[]> = {};
+      for (const question of interaction.questions) {
+        const fieldset = [...form.querySelectorAll<HTMLElement>('fieldset')].find((item) => item.dataset.questionId === question.id);
+        const selected = fieldset?.querySelector<HTMLInputElement>('input[type="radio"]:checked')?.value;
+        const other = fieldset?.querySelector<HTMLInputElement>('.interaction-answer')?.value.trim();
+        const value = other || selected;
+        if (!value) return;
+        answers[question.id] = [value];
+      }
+      reply = { kind: 'userInput', answers };
+    }
+  } else {
+    if (action !== 'accept') {
+      reply = { kind: 'mcp', action: action === 'decline' ? 'decline' : 'cancel', values: {} };
+    } else {
+      if (!form.reportValidity()) return;
+      const values: Record<string, unknown> = {};
+      for (const field of interaction.fields) {
+        const input = form.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-field-id="${CSS.escape(field.id)}"] input, [data-field-id="${CSS.escape(field.id)}"] select`);
+        if (!input) continue;
+        if (input instanceof HTMLInputElement && input.type === 'checkbox') values[field.id] = input.checked;
+        else if (field.type === 'number' && input.value) values[field.id] = Number(input.value);
+        else values[field.id] = input.value;
+      }
+      reply = { kind: 'mcp', action: 'accept', values };
+    }
+  }
+  for (const button of form.querySelectorAll<HTMLButtonElement>('button')) button.disabled = true;
+  form.setAttribute('aria-busy', 'true');
+  vscode.postMessage({ type: 'threads/conversation/interaction', sessionId, threadId, interactionId, reply });
+}
+
+function isApprovalInteraction(
+  interaction: ConversationInteractionViewModel
+): interaction is Extract<ConversationInteractionViewModel, { kind: 'commandApproval' | 'fileApproval' | 'permissionsApproval' }> {
+  return interaction.kind === 'commandApproval' || interaction.kind === 'fileApproval' || interaction.kind === 'permissionsApproval';
 }
 
 function renderRuntimeSettings(target: ConversationComposerTarget): void {
@@ -1166,7 +1346,8 @@ function requireConversationTarget(): ConversationRenderTarget {
 
 function actionButton(
   label: string,
-  action: ThreadListAction | 'open' | 'back' | 'reload' | 'send' | 'stop' | 'add',
+  action: ThreadListAction | 'open' | 'back' | 'reload' | 'send' | 'stop' | 'add' |
+    'interaction-accept' | 'interaction-session' | 'interaction-decline' | 'interaction-cancel',
   threadId?: string
 ): HTMLButtonElement {
   const result = document.createElement('button');

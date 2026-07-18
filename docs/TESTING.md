@@ -4,10 +4,19 @@ The current release target is a privately distributed VSIX. Marketplace publicat
 
 ## Automated checks
 
+Use the pinned Node.js/npm versions and install the locked dependency tree:
+
+```bash
+nvm use
+npm run bootstrap:offline
+```
+
+`bootstrap:offline` fails quickly when the local npm cache is incomplete. Retry `npm run bootstrap` with network access in that case. Both commands skip installation when the existing `node_modules` passes `npm run doctor`, and verify required packages and executable shims after `npm ci` so that a partial extraction cannot be treated as a successful setup.
+
 Run before creating a VSIX:
 
 ```bash
-npm ci
+npm run doctor
 npm run verify
 npm run test:vscode
 npm run package

@@ -46,7 +46,8 @@ const conversationState = {
     sandbox: 'workspace-write',
     approvalPolicy: 'on-request',
     message: null
-  }
+  },
+  interactions: []
 } as const;
 
 test('accepts only the explicit sidebar navigation messages', () => {
@@ -89,6 +90,20 @@ test('accepts bounded composer actions and rejects arbitrary conversation payloa
     requestId: 'request-1',
     text: 'Continue this thread'
   }), true);
+  assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/interaction',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    interactionId: 'interaction-1',
+    reply: { kind: 'approval', decision: 'decline' }
+  }), true);
+  assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/interaction',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    interactionId: 'interaction-1',
+    reply: { kind: 'approval', decision: 'alwaysAllowEverything' }
+  }), false);
   assert.equal(isThreadsWebviewMessage({
     type: 'threads/conversation/settings',
     sessionId: 'session-1',

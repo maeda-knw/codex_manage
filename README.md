@@ -36,9 +36,12 @@ The checked-in protocol snapshot was generated with Codex CLI `0.144.2`. Exact v
 Build the private package:
 
 ```bash
-npm ci
+nvm use
+npm run bootstrap:offline
 npm run package
 ```
+
+If the local npm cache is incomplete, retry with network access using `npm run bootstrap`.
 
 Then install `codex-thread-manager-0.0.1.vsix` using either:
 
@@ -124,8 +127,8 @@ The local list remains unchanged when the App Server rejects an operation. Revie
 ## Limitations
 
 - Text conversation is supported only for existing threads; image, file, Skill, and mention inputs are not available yet.
-- Approval requests and follow-up questions are not supported until vNext Phase C. Unsupported App Server requests are rejected rather than approved implicitly, so a turn that needs one may fail and must be continued in another Codex client for now.
-- Stored messages are rendered as plain text; Markdown rendering and clickable links are not enabled yet.
+- Command, file-change, and permission approvals plus Codex follow-up questions are supported. Unsupported App Server request types are still rejected rather than approved implicitly.
+- Standard MCP form elicitations support strings, numbers, booleans, and single-select enums; OpenAI-specific forms, multi-select enums, and URL-mode elicitations can only be declined or cancelled.
 - Raw reasoning content, command output, file diffs, and tool arguments/results are intentionally not displayed.
 - Some older turns may contain only summary history, which is indicated in the conversation view.
 - Very large stored histories are currently loaded and rendered as one snapshot; progressive rendering is planned for a later vNext phase.
@@ -139,13 +142,18 @@ The local list remains unchanged when the App Server rejects an operation. Revie
 ## Development and verification
 
 ```bash
-npm ci
+nvm use
+npm run bootstrap:offline
+npm run doctor
 npm run verify
 npm run test:vscode
 npm run package
 ```
 
 - `npm test`: unit and fake App Server integration tests.
+- `npm run bootstrap:offline`: reuses healthy dependencies or installs from the local npm cache and fails quickly if the cache is incomplete.
+- `npm run bootstrap`: reuses healthy dependencies or runs a cache-preferred locked install with bounded fetch retries and a post-install health check.
+- `npm run doctor`: verifies direct dependency versions and runtime files required by TypeScript, esbuild, and VSCE.
 - `npm run test:vscode`: downloads VS Code 1.92.2 into `.vscode-test` and runs Extension Host registration tests.
 - `npm run verify`: tests, Extension Host/Webview type checking, lint, bundle generation, and required VSIX-file verification.
 - `npm run package`: builds the extension, verifies its runtime assets, and creates the private VSIX.

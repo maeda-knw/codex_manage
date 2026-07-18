@@ -74,6 +74,12 @@ export interface AppServerNotification {
   readonly params?: unknown;
 }
 
+export interface AppServerRequest {
+  readonly id: RequestId;
+  readonly method: string;
+  readonly params?: unknown;
+}
+
 interface PendingRequest {
   readonly method: string;
   readonly timer: NodeJS.Timeout;
@@ -86,6 +92,7 @@ type ConnectionState = 'idle' | 'starting' | 'ready' | 'disposed';
 export class AppServerClient {
   private readonly notifications = new EventEmitter();
   private readonly pendingRequests = new Map<string, PendingRequest>();
+  private readonly pendingServerRequests = new Map<string, string>();
   private readonly requestTimeoutMs: number;
   private process: ChildProcessWithoutNullStreams | undefined;
   private transport: JsonlTransport | undefined;
@@ -122,6 +129,33 @@ export class AppServerClient {
         this.notifications.off('disconnect', listener);
       }
     };
+  }
+
+  public onServerRequest(listener: (request: AppServerRequest) => void): { dispose(): void } {
+    this.notifications.on('serverRequest', listener);
+    return {
+      dispose: () => {
+        this.notifications.off('serverRequest', listener);
+      }
+    };
+  }
+
+  public async respondToServerRequest(id: RequestId, result: unknown): Promise<boolean> {
+    const key = requestKey(id);
+    const method = this.pendingServerRequests.get(key);
+    if (!method) {
+      this.options.logger.appendLine(`[app-server] Ignored a response for unknown server request ${String(id)}.`);
+      return false;
+    }
+    this.pendingServerRequests.delete(key);
+    try {
+      await this.requireTransport().send({ id, result });
+      this.options.logger.appendLine(`[app-server] Responded to server request ${method}.`);
+      return true;
+    } catch (error) {
+      this.options.logger.appendLine(`[app-server] Failed to respond to server request ${method}: ${asError(error).message}`);
+      return false;
+    }
   }
 
   public getDiagnostics(): AppServerDiagnostics {
@@ -420,7 +454,21 @@ export class AppServerClient {
 
     if (typeof message.method === 'string') {
       if ('id' in message && isRequestId(message.id)) {
-        void this.rejectServerRequest(message.id, message.method);
+        if (isSupportedServerRequestMethod(message.method)) {
+          const key = requestKey(message.id);
+          if (this.pendingServerRequests.has(key)) {
+            void this.rejectServerRequest(message.id, message.method);
+            return;
+          }
+          this.pendingServerRequests.set(key, message.method);
+          this.notifications.emit('serverRequest', {
+            id: message.id,
+            method: message.method,
+            params: message.params
+          });
+        } else {
+          void this.rejectServerRequest(message.id, message.method);
+        }
       } else {
         this.notifications.emit('notification', { method: message.method, params: message.params });
       }
@@ -501,6 +549,7 @@ export class AppServerClient {
       pending.reject(error);
     }
     this.pendingRequests.clear();
+    this.pendingServerRequests.clear();
 
     if (child) {
       child.stdin.end();
@@ -561,6 +610,14 @@ export class AppServerClient {
     }
     return this.normalizeConnectionError(value, fallbackMessage);
   }
+}
+
+function isSupportedServerRequestMethod(method: string): boolean {
+  return method === 'item/commandExecution/requestApproval' ||
+    method === 'item/fileChange/requestApproval' ||
+    method === 'item/permissions/requestApproval' ||
+    method === 'item/tool/requestUserInput' ||
+    method === 'mcpServer/elicitation/request';
 }
 
 function requestKey(id: RequestId): string {
