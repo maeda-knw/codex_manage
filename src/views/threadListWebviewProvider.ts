@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import * as vscode from 'vscode';
-import type { AppServerNotification } from '../codex/appServerClient';
+import type { AppServerNotification, AppServerRequest } from '../codex/appServerClient';
 import {
   isJsonObject,
   parseConversationNotification,
@@ -9,6 +9,12 @@ import {
 import type { ThreadPageState, ThreadRepositorySnapshot } from '../codex/threadRepository';
 import { asError } from '../common/errors';
 import { conversationErrorMessage } from '../conversation/conversationPanelManager';
+import {
+  buildConversationInteractionResponse,
+  parseConversationInteraction,
+  type ConversationInteractionReply,
+  type ParsedConversationInteraction
+} from '../conversation/conversationInteraction';
 import {
   ConversationSession,
   type ConversationSessionClient,
@@ -44,6 +50,7 @@ export interface ThreadListWebviewLogger {
 export interface ThreadListWebviewProviderOptions {
   readonly extensionUri: vscode.Uri;
   readonly conversationClient: ConversationSessionClient;
+  readonly respondToServerRequest?: (id: AppServerRequest['id'], result: unknown) => Promise<boolean>;
   readonly logger: ThreadListWebviewLogger;
 }
 
@@ -78,6 +85,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
   private status: ConnectionStatus = { kind: 'idle' };
   private activeThread: { readonly id: string; readonly title: string } | undefined;
   private readonly conversationSessions = new Map<string, ConversationSession>();
+  private readonly interactions = new Map<string, ParsedConversationInteraction>();
   private conversationSession: ConversationSession | undefined;
   private conversationSessionId: string | undefined;
   private conversationSubscription: { dispose(): void } | undefined;
@@ -87,6 +95,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
   private pendingRestoreThreadId: string | undefined;
   private viewReady = false;
   private generation = 0;
+  private conversationViewRevision = 0;
   private disposed = false;
 
   public constructor(private readonly options: ThreadListWebviewProviderOptions) {}
@@ -161,6 +170,14 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
           case 'threads/conversation/settings':
             this.updateConversationSettings(message.sessionId, message.threadId, message.settings);
             return;
+          case 'threads/conversation/interaction':
+            this.respondToInteraction(
+              message.sessionId,
+              message.threadId,
+              message.interactionId,
+              message.reply
+            );
+            return;
           case 'threads/action':
             this.executeAction(message.action, message.threadId);
         }
@@ -215,6 +232,16 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
   }
 
   public handleNotification(notification: AppServerNotification): void {
+    if (notification.method === 'serverRequest/resolved' && isJsonObject(notification.params)) {
+      const resolvedId = notification.params.requestId;
+      for (const [id, interaction] of this.interactions) {
+        if (interaction.requestId === resolvedId) {
+          this.interactions.delete(id);
+          this.postCurrentConversationState();
+          break;
+        }
+      }
+    }
     const threadId = isJsonObject(notification.params) &&
       typeof notification.params.threadId === 'string'
       ? notification.params.threadId
@@ -251,10 +278,25 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     }
   }
 
+  public handleServerRequest(request: AppServerRequest): void {
+    const interactionId = randomUUID();
+    const interaction = parseConversationInteraction(request.id, interactionId, request.method, request.params);
+    if (!interaction) {
+      this.options.logger.appendLine(`[threads] Rejected malformed or unsupported server request ${request.method}.`);
+      void this.respondToServerRequest(request.id, cancellationResponse(request.method));
+      return;
+    }
+    this.interactions.set(interactionId, interaction);
+    this.options.logger.appendLine(`[threads] Received ${request.method} for thread ${interaction.threadId}.`);
+    this.postCurrentConversationState();
+  }
+
   public markConversationDisconnected(): void {
+    this.interactions.clear();
     for (const session of this.conversationSessions.values()) {
       session.markDisconnected();
     }
+    this.postCurrentConversationState();
   }
 
   public resetWorkspace(): void {
@@ -263,6 +305,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     this.disposeConversationSessions();
     this.activeThread = undefined;
     this.pendingRestoreThreadId = undefined;
+    this.interactions.clear();
     this.snapshot = {
       pinned: { threads: [], nextCursor: null, loaded: true },
       active: { threads: [], nextCursor: null, loaded: false },
@@ -279,6 +322,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     this.disposeConversationSessions();
     this.activeThread = undefined;
     this.pendingRestoreThreadId = undefined;
+    this.interactions.clear();
     this.viewReady = false;
     this.view = undefined;
     this.disposeViewListeners();
@@ -431,7 +475,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     loaded = true;
     this.post({
       type: 'threads/conversationLoaded',
-      state: toConversationScreenState(sessionId, snapshot)
+      state: this.toConversationScreenState(sessionId, snapshot)
     });
     this.options.logger.appendLine(
       `[threads] Loaded ${snapshot.model.turns.length} turn(s) for sidebar thread ${snapshot.model.threadId}.`
@@ -530,6 +574,48 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
         `[threads] Ignored invalid settings request for sidebar thread ${threadId}.`
       );
     }
+  }
+
+  private respondToInteraction(
+    sessionId: string,
+    threadId: string,
+    interactionId: string,
+    reply: ConversationInteractionReply
+  ): void {
+    if (!this.isCurrentSession(sessionId, threadId)) {
+      this.options.logger.appendLine(`[threads] Ignored a stale interaction response for thread ${threadId}.`);
+      return;
+    }
+    const interaction = this.interactions.get(interactionId);
+    if (!interaction || interaction.threadId !== threadId) {
+      this.options.logger.appendLine(`[threads] Ignored a response for an unknown interaction in thread ${threadId}.`);
+      return;
+    }
+    const approvalView = interaction.view.kind === 'commandApproval' ||
+      interaction.view.kind === 'fileApproval' || interaction.view.kind === 'permissionsApproval'
+      ? interaction.view
+      : undefined;
+    if (reply.kind === 'approval' && reply.decision === 'acceptForSession' &&
+      (!approvalView || !approvalView.allowSession)) {
+      this.options.logger.appendLine(`[threads] Rejected an unavailable session approval for thread ${threadId}.`);
+      return;
+    }
+    const result = buildConversationInteractionResponse(interaction, reply);
+    if (result === undefined) {
+      this.options.logger.appendLine(`[threads] Rejected an invalid interaction response for thread ${threadId}.`);
+      return;
+    }
+    this.interactions.delete(interactionId);
+    this.postCurrentConversationState();
+    void this.respondToServerRequest(interaction.requestId, result).then((sent) => {
+      if (!sent && !this.disposed) {
+        this.options.logger.appendLine(`[threads] Could not send the interaction response for thread ${threadId}.`);
+      }
+    });
+  }
+
+  private respondToServerRequest(id: AppServerRequest['id'], result: unknown): Promise<boolean> {
+    return this.options.respondToServerRequest?.(id, result) ?? Promise.resolve(false);
   }
 
   private executeAction(action: ThreadListAction, threadId?: string): void {
@@ -633,8 +719,26 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     }
     this.post({
       type: 'threads/conversationState',
-      state: toConversationScreenState(latest.sessionId, latest.snapshot)
+      state: this.toConversationScreenState(latest.sessionId, latest.snapshot)
     });
+  }
+
+  private postCurrentConversationState(): void {
+    const session = this.conversationSession;
+    const sessionId = this.conversationSessionId;
+    if (!session || !sessionId) return;
+    this.post({ type: 'threads/conversationState', state: this.toConversationScreenState(sessionId, session.snapshot()) });
+  }
+
+  private toConversationScreenState(sessionId: string, snapshot: ConversationSessionSnapshot): ConversationScreenState {
+    return toConversationScreenState(
+      sessionId,
+      snapshot,
+      [...this.interactions.values()]
+        .filter((interaction) => interaction.threadId === snapshot.model.threadId)
+        .map((interaction) => interaction.view),
+      ++this.conversationViewRevision
+    );
   }
 
   private disposeConversationSessions(): void {
@@ -727,25 +831,37 @@ function toListPage(page: ThreadPageState): ThreadListPageViewModel {
 
 function toConversationScreenState(
   sessionId: string,
-  snapshot: ConversationSessionSnapshot
+  snapshot: ConversationSessionSnapshot,
+  interactions: ConversationScreenState['interactions'],
+  revision: number
 ): ConversationScreenState {
   const execution = toConversationExecution(snapshot);
   return snapshot.notice
     ? {
       sessionId,
-      revision: snapshot.revision,
+      revision,
       model: snapshot.model,
       execution,
       runtime: snapshot.runtime,
+      interactions,
       notice: snapshot.notice
     }
     : {
       sessionId,
-      revision: snapshot.revision,
+      revision,
       model: snapshot.model,
       execution,
-      runtime: snapshot.runtime
+      runtime: snapshot.runtime,
+      interactions
     };
+}
+
+function cancellationResponse(method: string): unknown {
+  if (method === 'item/commandExecution/requestApproval' || method === 'item/fileChange/requestApproval') return { decision: 'cancel' };
+  if (method === 'item/permissions/requestApproval') return { permissions: {}, scope: 'turn' };
+  if (method === 'item/tool/requestUserInput') return { answers: {} };
+  if (method === 'mcpServer/elicitation/request') return { action: 'cancel', content: null, _meta: null };
+  return {};
 }
 
 function toConversationExecution(

@@ -10,6 +10,7 @@ const entryPoints = [
   'test/unit/jsonlTransport.test.ts',
   'test/unit/pinStore.test.ts',
   'test/unit/conversationPanelManager.test.ts',
+  'test/unit/conversationInteraction.test.ts',
   'test/unit/conversationProtocol.test.ts',
   'test/unit/conversationReducer.test.ts',
   'test/unit/conversationSession.test.ts',

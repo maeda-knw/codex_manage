@@ -7,6 +7,11 @@ import type {
   ConversationRuntimeSettings,
   ConversationRuntimeSettingsUpdate
 } from '../../conversation/conversationSession';
+import type {
+  ConversationApprovalDecision,
+  ConversationInteractionReply,
+  ConversationInteractionViewModel
+} from '../../conversation/conversationInteraction';
 
 export const MAX_COMPOSER_TEXT_LENGTH = 100_000;
 export const MAX_CONVERSATION_ID_LENGTH = 512;
@@ -69,6 +74,7 @@ export interface ConversationScreenState {
   readonly model: ConversationViewModel;
   readonly execution: ConversationExecutionViewModel;
   readonly runtime: ConversationRuntimeSettings;
+  readonly interactions: readonly ConversationInteractionViewModel[];
   readonly notice?: string;
 }
 
@@ -116,6 +122,13 @@ export type ThreadsWebviewToHostMessage =
     readonly sessionId: string;
     readonly threadId: string;
     readonly settings: ConversationRuntimeSettingsUpdate;
+  }
+  | {
+    readonly type: 'threads/conversation/interaction';
+    readonly sessionId: string;
+    readonly threadId: string;
+    readonly interactionId: string;
+    readonly reply: ConversationInteractionReply;
   }
   | {
     readonly type: 'threads/action';
@@ -224,6 +237,13 @@ export function isThreadsWebviewMessage(value: unknown): value is ThreadsWebview
       isRuntimeSettingsUpdate(value.settings)
     );
   }
+  if (value.type === 'threads/conversation/interaction') {
+    return (
+      hasOnlyKeys(value, ['type', 'sessionId', 'threadId', 'interactionId', 'reply']) &&
+      isBoundedId(value.sessionId) && isBoundedId(value.threadId) && isBoundedId(value.interactionId) &&
+      isInteractionReply(value.reply)
+    );
+  }
   if (
     value.type !== 'threads/action' ||
     typeof value.action !== 'string' ||
@@ -275,8 +295,52 @@ export function isConversationScreenState(value: unknown): value is Conversation
     isConversationViewModel(value.model) &&
     isConversationExecution(value.execution) &&
     isRuntimeSettings(value.runtime) &&
+    Array.isArray(value.interactions) && value.interactions.every(isConversationInteraction) &&
     (value.notice === undefined || typeof value.notice === 'string')
   );
+}
+
+function isInteractionReply(value: unknown): value is ConversationInteractionReply {
+  if (!isObject(value)) return false;
+  if (value.kind === 'approval') {
+    return hasOnlyKeys(value, ['kind', 'decision']) &&
+      ['accept', 'acceptForSession', 'decline', 'cancel'].includes(String(value.decision) as ConversationApprovalDecision);
+  }
+  if (value.kind === 'userInput') {
+    return hasOnlyKeys(value, ['kind', 'answers']) && isAnswerRecord(value.answers);
+  }
+  if (value.kind === 'mcp') {
+    return hasOnlyKeys(value, ['kind', 'action', 'values']) &&
+      ['accept', 'decline', 'cancel'].includes(String(value.action)) && isSafeValueRecord(value.values);
+  }
+  return false;
+}
+
+function isAnswerRecord(value: unknown): boolean {
+  return isObject(value) && Object.keys(value).length <= 3 && Object.entries(value).every(([id, answer]) =>
+    isBoundedId(id) && Array.isArray(answer) && answer.length > 0 && answer.length <= 10 &&
+    answer.every((part) => typeof part === 'string' && part.length <= 10_000)
+  );
+}
+
+function isSafeValueRecord(value: unknown): boolean {
+  return isObject(value) && Object.keys(value).length <= 20 && Object.entries(value).every(([key, item]) =>
+    isBoundedId(key) && (typeof item === 'string' && item.length <= 10_000 || typeof item === 'number' && Number.isFinite(item) || typeof item === 'boolean')
+  );
+}
+
+function isConversationInteraction(value: unknown): boolean {
+  if (!isObject(value) || !isBoundedId(value.id) || typeof value.kind !== 'string' || typeof value.title !== 'string' || typeof value.summary !== 'string') return false;
+  if (value.kind === 'commandApproval' || value.kind === 'fileApproval' || value.kind === 'permissionsApproval') {
+    return Array.isArray(value.detail) && value.detail.every((item) => typeof item === 'string') && typeof value.allowSession === 'boolean';
+  }
+  if (value.kind === 'userInput') {
+    return Array.isArray(value.questions) && value.questions.length <= 3;
+  }
+  if (value.kind === 'mcpElicitation') {
+    return Array.isArray(value.fields) && value.fields.length <= 20 && typeof value.acceptsInput === 'boolean';
+  }
+  return false;
 }
 
 function isRuntimeSettings(value: unknown): value is ConversationRuntimeSettings {

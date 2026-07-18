@@ -36,6 +36,9 @@ export function activate(context: vscode.ExtensionContext): void {
         provider.setSnapshot(repository.snapshot());
       }
     });
+    client.onServerRequest((request) => {
+      provider.handleServerRequest(request);
+    });
     client.onDidDisconnect((error) => {
       if (client !== activeClient) {
         return;
@@ -72,6 +75,7 @@ export function activate(context: vscode.ExtensionContext): void {
       interruptTurn: (params) => (activeClient ?? replaceClient()).interruptTurn(params),
       listModels: (params) => (activeClient ?? replaceClient()).listModels(params)
     },
+    respondToServerRequest: (id, result) => (activeClient ?? replaceClient()).respondToServerRequest(id, result),
     logger: output
   });
 
