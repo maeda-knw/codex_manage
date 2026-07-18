@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added capability-aware local images, host-selected file mentions, and enabled workspace Skills from the composer Add menu, including removable pre-send chips, format/size limits, duplicate suppression, path redaction, and failure restoration.
+
 - GitHub Actions CI is now manual-only and no longer runs automatically for pushes or pull requests.
 
 - Runtime permissions now follow the official Codex presets: Ask for approval, Approve for me, and Full access. Detailed sandbox, approval, and reviewer controls remain available under Advanced, and auto-review is forwarded to existing and new conversations.

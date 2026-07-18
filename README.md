@@ -14,6 +14,7 @@ The MVP is packaged for private VSIX installation. Marketplace publication is no
 - Updates names, archive state, and execution status from App Server notifications.
 - Opens a selected thread's conversation in the same Codex sidebar, including stored user/Codex messages, turn state, and summarized work cards.
 - Sends text prompts to an existing thread, streams Codex replies in place, and stops the active turn when needed.
+- Adds PNG, JPEG, GIF, or WebP images, file mentions, and enabled workspace Skills to the next message from the composer Add menu.
 - Starts a workspace-scoped conversation from the sidebar, applies the selected Runtime settings, and sends its first text prompt without creating a duplicate list entry.
 - Shows a compact summary in the Runtime trigger with the GPT version and variant, effective reasoning, Fast speed when selected, and non-standard sandbox permissions.
 - Keeps the last confirmed transcript visible across disconnects and re-synchronizes it with `thread/resume` plus `thread/read` after reconnecting.
@@ -66,10 +67,12 @@ Reload VS Code after installation.
 6. Select anywhere in an existing thread card except its action icons to open stored conversation history in the same Codex sidebar.
 7. Select a group heading to expand or collapse Pinned, Recent threads, or Archive.
 8. Hover a row or focus it with the keyboard, then use its inline icons to pin, rename, archive, or restore it.
-9. Enter a text message and select **Send**, or press Ctrl+Enter / Cmd+Enter. Enter by itself inserts a new line.
-10. While Codex is responding, select **Stop** to interrupt that turn.
-11. Use **Reload** to reconnect and re-synchronize the selected conversation, then **Back** to return to the list.
-12. Open **View: Toggle Output** and select `Codex Thread Manager` for connection diagnostics.
+9. If the selected model supports images, use **Add** > **Add image…** to attach up to 10 PNG, JPEG, GIF, or WebP files of at most 20 MB each.
+10. Use **Add** > **Mention files…** or **Add Skill…** to add file references or enabled Skills to the next message.
+11. Enter a text message and select **Send**, or press Ctrl+Enter / Cmd+Enter. Enter by itself inserts a new line.
+12. While Codex is responding, select **Stop** to interrupt that turn.
+13. Use **Reload** to reconnect and re-synchronize the selected conversation, then **Back** to return to the list.
+14. Open **View: Toggle Output** and select `Codex Thread Manager` for connection diagnostics.
 
 Only threads whose `cwd` exactly matches one of the open workspace folder paths are shown. Threads started in a nested subdirectory are not included in this MVP.
 
@@ -129,7 +132,7 @@ The local list remains unchanged when the App Server rejects an operation. Revie
 
 ## Limitations
 
-- Text conversation is supported for existing and newly created threads; image, file, Skill, and mention inputs are not available yet.
+- Text, local-image, file mention, and enabled Skill inputs are supported for existing and newly created threads. Remote image URLs and arbitrary paths entered by the Webview are not supported.
 - Command, file-change, and permission approvals plus Codex follow-up questions are supported. Unsupported App Server request types are still rejected rather than approved implicitly.
 - Standard MCP form elicitations support strings, numbers, booleans, and single-select enums; OpenAI-specific forms, multi-select enums, and URL-mode elicitations can only be declined or cancelled.
 - Raw reasoning content, command output, file diffs, and tool arguments/results are intentionally not displayed.

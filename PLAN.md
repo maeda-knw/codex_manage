@@ -1,7 +1,7 @@
 # Codex Thread Manager for VS Code 実装計画書
 
 - 作成日: 2026-07-14
-- 状態: vNext Phase D 手動受け入れ確認保留／Phase E.3 完了（新規スレッド作成）
+- 状態: vNext Phase D 手動受け入れ確認保留／Phase E.4 完了（画像・mention・Skill 入力）
 - 仮称: `Codex Thread Manager`
 - 調査環境: Windows / Codex CLI `0.142.3`
 
@@ -893,6 +893,18 @@ Phase E は次の原則で進める。
 - Add メニューは現在利用できる入力だけを表示し、少なくとも1種類の追加入力をテキストと一緒に送信できる。
 - キャンセル、重複追加、サイズや形式の拒否、送信失敗後の復元を自動テストで扱える。
 
+実装結果（2026-07-18）:
+
+- App Server の `UserInput.localImage` とモデルカタログの `inputModalities` を使用し、選択中モデルが画像入力へ対応する場合だけ Add メニューへ `Add image…` を表示するようにした。
+- VS Code のファイル選択ダイアログを Extension Host から開き、PNG、JPEG、GIF、WebP を最大10件、1件20 MBまで受け付けるようにした。Webview から任意パスを指定できるメッセージは受け付けない。
+- 選択済み画像をファイル名とサイズだけのチップとして送信前に表示し、個別に削除できるようにした。ローカルパスは Webview state と Output Channel へ転送しない。
+- 同一パスの重複を除外し、非対応形式、空ファイル、サイズ超過、上限超過を拒否するようにした。キャンセル時は composer の状態を変更しない。
+- テキストの直後へ `localImage` 入力を付けて既存スレッドと新規スレッドの `turn/start` へ渡すようにした。送信成功時だけ選択を消去し、送信失敗時と新規 thread 作成後の初回 turn 失敗時は画像とテキストを保持する。
+- Webview プロトコル、ConversationSession、Provider、偽 App Server 統合テストへ capability、パス秘匿、重複、削除、形式・サイズ拒否、送信、失敗復元のケースを追加した。
+- `UserInput.mention` を追加し、Extension Host のファイル選択ダイアログから最大20件、1件10 MBまでの通常ファイルを選択できるようにした。選択済み項目は `@ファイル名` とサイズだけを表示し、実パスは Host 内に保持する。
+- `skills/list` のレスポンス境界を検証し、現在の workspace `cwd` で有効な Skill だけを Quick Pick へ表示して、最大10件の `UserInput.skill` を追加できるようにした。Webview へは Skill 名と説明だけを渡す。
+- 画像、mention、Skill を同じ turn へ順序どおり送信し、種類ごとの重複と上限を独立して管理するようにした。キャンセル、不正パス、サイズ超過、初回 turn 失敗後の復元、Webview へのパス非公開を自動テストへ追加した。
+
 ### 16.6 Phase E.5: turn ブックマーク
 
 実装方針:
@@ -915,6 +927,6 @@ Phase E は次の原則で進める。
 - [x] 現在のモデルと推論レベルを会話画面で常に確認できる。
 - [x] Runtime settings を外側クリックと Escape で閉じられる。
 - [x] 一覧から新規スレッドを開始できる。
-- [ ] Add メニューから少なくとも1種類の追加入力を送信できる。
+- [x] Add メニューから少なくとも1種類の追加入力を送信できる。
 - [ ] turn をブックマークし、再読み込み後も対象箇所へ移動できる。
 - [ ] Phase E の追加後も既存の一覧管理、会話、承認、再同期、セキュリティ境界が回帰しない。

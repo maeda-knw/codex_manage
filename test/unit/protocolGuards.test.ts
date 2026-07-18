@@ -5,6 +5,7 @@ import {
   parseConversationConfigDefaults,
   parseInitializeResponse,
   parseModelListResponse,
+  parseSkillsListResponse,
   parseThreadListResponse,
   parseThreadReadResponse,
   parseThreadStartResponse
@@ -47,6 +48,35 @@ test('validates model picker metadata before exposing runtime choices', () => {
   assert.throws(
     () => parseModelListResponse({ data: [{ model: 'unsafe' }], nextCursor: null }),
     /invalid model\/list response/u
+  );
+});
+
+test('validates workspace-scoped Skill metadata before exposing choices', () => {
+  const response = parseSkillsListResponse({
+    data: [{
+      cwd: 'D:\\workspace',
+      skills: [{
+        name: 'review',
+        description: 'Review changes',
+        path: 'D:\\skills\\review\\SKILL.md',
+        scope: 'repo',
+        enabled: true
+      }],
+      errors: []
+    }]
+  }, ['D:\\workspace']);
+  assert.equal(response.data[0]?.skills[0]?.name, 'review');
+  assert.throws(
+    () => parseSkillsListResponse({
+      data: [{ cwd: 'D:\\other', skills: [], errors: [] }]
+    }, ['D:\\workspace']),
+    /invalid skills\/list response/u
+  );
+  assert.throws(
+    () => parseSkillsListResponse({
+      data: [{ cwd: 'D:\\workspace', skills: [{ name: 'broken' }], errors: [] }]
+    }, ['D:\\workspace']),
+    /invalid skills\/list response/u
   );
 });
 

@@ -139,7 +139,7 @@ test('classifies malformed conversation history as an incompatible CLI boundary'
   assert.equal(logs.some((line) => line.includes('invalid thread/read response')), true);
 });
 
-test('resumes a thread, starts a text turn, streams notifications, and interrupts by turn ID', async (t) => {
+test('lists Skills, starts a turn with every supported context input, streams, and interrupts', async (t) => {
   const logs: string[] = [];
   const client = createClient('conversation-live', logs);
   t.after(() => client.dispose());
@@ -147,6 +147,8 @@ test('resumes a thread, starts a text turn, streams notifications, and interrupt
   const resumed = await client.resumeThread({ threadId: 'thread-1' });
   assert.equal(resumed.thread.id, 'thread-1');
   assert.equal(resumed.model, 'gpt-fixture');
+  const skills = await client.listSkills({ cwds: ['/workspace'], forceReload: false });
+  assert.equal(skills.data[0]?.skills[0]?.name, 'review');
 
   const userItemCompleted = waitForConversationNotification(
     client,
@@ -167,11 +169,16 @@ test('resumes a thread, starts a text turn, streams notifications, and interrupt
   const started = await client.startTurn({
     threadId: 'thread-1',
     clientUserMessageId: 'client-message-1',
-    input: [{
-      type: 'text',
-      text: 'Continue the fixture',
-      text_elements: []
-    }]
+    input: [
+      {
+        type: 'text',
+        text: 'Continue the fixture',
+        text_elements: []
+      },
+      { type: 'localImage', path: '/workspace/fixture.png' },
+      { type: 'mention', name: 'AGENTS.md', path: '/workspace/AGENTS.md' },
+      { type: 'skill', name: 'review', path: '/skills/review/SKILL.md' }
+    ]
   });
 
   assert.equal(started.turn.id, 'turn-live');

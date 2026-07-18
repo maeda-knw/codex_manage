@@ -11,6 +11,9 @@ import type { TurnStartResponse } from '../codex/protocol/generated/v2/TurnStart
 import type { Model } from '../codex/protocol/generated/v2/Model';
 import type { ModelListParams } from '../codex/protocol/generated/v2/ModelListParams';
 import type { ModelListResponse } from '../codex/protocol/generated/v2/ModelListResponse';
+import type { SkillsListParams } from '../codex/protocol/generated/v2/SkillsListParams';
+import type { SkillsListResponse } from '../codex/protocol/generated/v2/SkillsListResponse';
+import type { UserInput } from '../codex/protocol/generated/v2/UserInput';
 import type { AskForApproval } from '../codex/protocol/generated/v2/AskForApproval';
 import type { ApprovalsReviewer } from '../codex/protocol/generated/v2/ApprovalsReviewer';
 import type { SandboxMode } from '../codex/protocol/generated/v2/SandboxMode';
@@ -37,6 +40,7 @@ export interface ConversationSessionClient {
   startTurn(params: TurnStartParams): Promise<TurnStartResponse>;
   interruptTurn(params: TurnInterruptParams): Promise<TurnInterruptResponse>;
   listModels(params: ModelListParams): Promise<ModelListResponse>;
+  listSkills?(params: SkillsListParams): Promise<SkillsListResponse>;
 }
 
 export type SimpleApprovalPolicy = 'untrusted' | 'on-request' | 'never';
@@ -93,6 +97,11 @@ export interface ConversationSessionSnapshot {
 }
 
 export type ConversationSessionListener = (snapshot: ConversationSessionSnapshot) => void;
+
+export type ConversationAdditionalInput = Extract<
+  UserInput,
+  { readonly type: 'localImage' | 'mention' | 'skill' }
+>;
 
 export class ConversationSession {
   private reducer: ConversationReducerState;
@@ -275,7 +284,10 @@ export class ConversationSession {
     this.publish();
   }
 
-  public async send(text: string): Promise<boolean> {
+  public async send(
+    text: string,
+    additionalInputs: readonly ConversationAdditionalInput[] = []
+  ): Promise<boolean> {
     if (this.disposed) {
       return false;
     }
@@ -372,7 +384,10 @@ export class ConversationSession {
       const response = await this.client.startTurn({
         threadId: this.reducer.thread.id,
         clientUserMessageId: randomUUID(),
-        input: [{ type: 'text', text, text_elements: [] }],
+        input: [
+          { type: 'text', text, text_elements: [] },
+          ...additionalInputs
+        ],
         ...(this.runtime.status === 'ready' && this.runtime.model ? {
           model: conversationRuntimeModelValue(this.modelCatalog, this.runtime.model),
           serviceTier: this.runtime.serviceTier,
@@ -410,6 +425,11 @@ export class ConversationSession {
         this.sendPending = false;
       }
     }
+  }
+
+  public supportsImageInput(): boolean {
+    if (this.runtime.status !== 'ready' || !this.runtime.model) return false;
+    return Boolean(findRuntimeModel(this.modelCatalog, this.runtime.model)?.inputModalities.includes('image'));
   }
 
   public async stop(): Promise<boolean> {

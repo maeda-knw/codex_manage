@@ -176,7 +176,7 @@ function runtimeModel(): Model {
     hidden: false,
     supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: 'Balanced' }],
     defaultReasoningEffort: 'medium',
-    inputModalities: ['text'],
+    inputModalities: ['text', 'image'],
     supportsPersonality: false,
     additionalSpeedTiers: ['fast'],
     serviceTiers: [{ id: 'priority', name: 'Fast', description: 'Lower latency' }],
@@ -335,6 +335,190 @@ test('creates one conversation from the first message and transitions to its run
   ) as { outcome?: unknown; threadId?: unknown } | undefined;
   assert.equal(result?.outcome, 'accepted');
   assert.equal(result?.threadId, 'thread-created');
+});
+
+test('selects, deduplicates, removes, and restores local images without exposing paths to the Webview', async (t) => {
+  setWorkspace();
+  const turnStarts: unknown[] = [];
+  let pickerSelection: ReadonlyArray<{ path: string; sizeBytes: number }> = [];
+  const client: ConversationSessionClient = {
+    ...fakeConversationClient(async (threadId) => createThread({ id: threadId })),
+    listModels: async () => ({ data: [runtimeModel()], nextCursor: null }),
+    startTurn: async (params) => {
+      turnStarts.push(params);
+      throw new Error('first message failed');
+    }
+  };
+  const provider = new ThreadListWebviewProvider({
+    extensionUri: vscode.Uri.file('/extension'),
+    conversationClient: client,
+    startThread: async () => startResponse(createThread({ id: 'thread-with-image' })),
+    readConversationConfig: async () => ({
+      model: 'gpt-fixture', reasoningEffort: null, serviceTier: null,
+      sandbox: 'workspace-write', approvalPolicy: 'on-request', approvalsReviewer: 'user'
+    }),
+    pickLocalImages: async () => pickerSelection,
+    logger: { appendLine: () => undefined }
+  });
+  t.after(() => provider.dispose());
+  provider.setSnapshot(snapshot());
+  provider.setConnectionStatus({ kind: 'ready' });
+  const view = new FakeWebviewView();
+  resolveProvider(provider, view);
+  view.webview.fire({ type: 'threads/ready' });
+  view.webview.fire({ type: 'threads/new' });
+  await flushPromises();
+  const ready = [...view.webview.postedMessages].reverse().find(
+    (message) => (message as { state?: { runtime?: { status?: unknown } } }).state?.runtime?.status === 'ready'
+  ) as { state: { sessionId: string; model: { threadId: string } } };
+
+  const beforeCancel = view.webview.postedMessages.length;
+  view.webview.fire({
+    type: 'threads/conversation/attachment/addImage',
+    sessionId: ready.state.sessionId,
+    threadId: ready.state.model.threadId
+  });
+  await flushPromises();
+  assert.equal(view.webview.postedMessages.length, beforeCancel);
+
+  pickerSelection = [
+    { path: '/workspace/diagram.png', sizeBytes: 1024 },
+    { path: '/workspace/diagram.png', sizeBytes: 1024 },
+    { path: '/workspace/keep.webp', sizeBytes: 2048 },
+    { path: '/workspace/too-large.jpg', sizeBytes: 21 * 1024 * 1024 },
+    { path: '/workspace/not-an-image.txt', sizeBytes: 10 }
+  ];
+
+  view.webview.fire({
+    type: 'threads/conversation/attachment/addImage',
+    sessionId: ready.state.sessionId,
+    threadId: ready.state.model.threadId
+  });
+  await flushPromises();
+  const withImages = [...view.webview.postedMessages].reverse().find(
+    (message) => (message as { state?: { attachments?: unknown[] } }).state?.attachments?.length === 2
+  ) as { state: { attachments: Array<{ id: string; name: string }> } };
+  assert.deepEqual(withImages.state.attachments.map((attachment) => attachment.name), ['diagram.png', 'keep.webp']);
+  assert.equal(JSON.stringify(withImages).includes('/workspace/'), false);
+
+  view.webview.fire({
+    type: 'threads/conversation/attachment/remove',
+    sessionId: ready.state.sessionId,
+    threadId: ready.state.model.threadId,
+    attachmentId: withImages.state.attachments[0]?.id
+  });
+  view.webview.fire({
+    type: 'threads/conversation/send',
+    sessionId: ready.state.sessionId,
+    threadId: ready.state.model.threadId,
+    requestId: 'send-with-image',
+    text: 'Inspect this image'
+  });
+  await flushPromises();
+
+  assert.deepEqual((turnStarts[0] as { input: unknown }).input, [
+    { type: 'text', text: 'Inspect this image', text_elements: [] },
+    { type: 'localImage', path: '/workspace/keep.webp' }
+  ]);
+  const transition = [...view.webview.postedMessages].reverse().find(
+    (message) => (message as { type?: unknown }).type === 'threads/conversationCreated'
+  ) as { state: { attachments: Array<{ name: string }> } };
+  assert.deepEqual(transition.state.attachments.map((attachment) => attachment.name), ['keep.webp']);
+  assert.equal(JSON.stringify(transition).includes('/workspace/'), false);
+  const result = view.webview.postedMessages.find(
+    (message) => (message as { requestId?: unknown }).requestId === 'send-with-image'
+  ) as { outcome?: unknown } | undefined;
+  assert.equal(result?.outcome, 'rejected');
+});
+
+test('adds host-selected mentions and Skills and restores them after a failed first turn', async (t) => {
+  setWorkspace();
+  const turnStarts: unknown[] = [];
+  const client: ConversationSessionClient = {
+    ...fakeConversationClient(async (threadId) => createThread({ id: threadId })),
+    listModels: async () => ({ data: [runtimeModel()], nextCursor: null }),
+    startTurn: async (params) => {
+      turnStarts.push(params);
+      throw new Error('first message failed');
+    }
+  };
+  const provider = new ThreadListWebviewProvider({
+    extensionUri: vscode.Uri.file('/extension'),
+    conversationClient: client,
+    startThread: async () => startResponse(createThread({ id: 'thread-with-context' })),
+    readConversationConfig: async () => ({
+      model: 'gpt-fixture', reasoningEffort: null, serviceTier: null,
+      sandbox: 'workspace-write', approvalPolicy: 'on-request', approvalsReviewer: 'user'
+    }),
+    pickMentionFiles: async () => [
+      { path: '/workspace/AGENTS.md', sizeBytes: 2048 },
+      { path: '/workspace/AGENTS.md', sizeBytes: 2048 },
+      { path: '/workspace/too-large.log', sizeBytes: 11 * 1024 * 1024 }
+    ],
+    pickSkills: async () => [
+      { name: 'review', path: '/skills/review/SKILL.md', description: 'Review changes' },
+      { name: 'review', path: '/skills/review/SKILL.md', description: 'Review changes' },
+      { name: 'invalid', path: 'relative/SKILL.md', description: 'Invalid path' }
+    ],
+    logger: { appendLine: () => undefined }
+  });
+  t.after(() => provider.dispose());
+  provider.setSnapshot(snapshot());
+  provider.setConnectionStatus({ kind: 'ready' });
+  const view = new FakeWebviewView();
+  resolveProvider(provider, view);
+  view.webview.fire({ type: 'threads/ready' });
+  view.webview.fire({ type: 'threads/new' });
+  await flushPromises();
+  const ready = [...view.webview.postedMessages].reverse().find(
+    (message) => (message as { state?: { runtime?: { status?: unknown } } }).state?.runtime?.status === 'ready'
+  ) as { state: { sessionId: string; model: { threadId: string }; availableAdditions: string[] } };
+  assert.deepEqual(ready.state.availableAdditions, ['localImage', 'mention', 'skill']);
+
+  view.webview.fire({
+    type: 'threads/conversation/attachment/addMention',
+    sessionId: ready.state.sessionId,
+    threadId: ready.state.model.threadId
+  });
+  await flushPromises();
+  view.webview.fire({
+    type: 'threads/conversation/attachment/addSkill',
+    sessionId: ready.state.sessionId,
+    threadId: ready.state.model.threadId
+  });
+  await flushPromises();
+  const selected = [...view.webview.postedMessages].reverse().find(
+    (message) => (message as { state?: { attachments?: unknown[] } }).state?.attachments?.length === 2
+  ) as { state: { attachments: Array<{ kind: string; name: string; sizeBytes?: number; description?: string }> } };
+  assert.deepEqual(
+    selected.state.attachments.map(({ kind, name }) => ({ kind, name })),
+    [{ kind: 'mention', name: 'AGENTS.md' }, { kind: 'skill', name: 'review' }]
+  );
+  assert.equal(selected.state.attachments[0]?.sizeBytes, 2048);
+  assert.equal(selected.state.attachments[1]?.description, 'Review changes');
+  assert.equal(JSON.stringify(selected).includes('/workspace/'), false);
+  assert.equal(JSON.stringify(selected).includes('/skills/'), false);
+
+  view.webview.fire({
+    type: 'threads/conversation/send',
+    sessionId: ready.state.sessionId,
+    threadId: ready.state.model.threadId,
+    requestId: 'send-with-context',
+    text: 'Use this context'
+  });
+  await flushPromises();
+  assert.deepEqual((turnStarts[0] as { input: unknown }).input, [
+    { type: 'text', text: 'Use this context', text_elements: [] },
+    { type: 'mention', name: 'AGENTS.md', path: '/workspace/AGENTS.md' },
+    { type: 'skill', name: 'review', path: '/skills/review/SKILL.md' }
+  ]);
+  const transition = [...view.webview.postedMessages].reverse().find(
+    (message) => (message as { type?: unknown }).type === 'threads/conversationCreated'
+  ) as { state: { attachments: Array<{ kind: string; name: string }> } };
+  assert.deepEqual(
+    transition.state.attachments.map(({ kind, name }) => ({ kind, name })),
+    [{ kind: 'mention', name: 'AGENTS.md' }, { kind: 'skill', name: 'review' }]
+  );
 });
 
 test('keeps a new-conversation draft after creation failure and isolates a late success after Back', async (t) => {

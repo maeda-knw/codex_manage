@@ -74,9 +74,30 @@ export interface ConversationScreenState {
   readonly model: ConversationViewModel;
   readonly execution: ConversationExecutionViewModel;
   readonly runtime: ConversationRuntimeSettings;
+  readonly availableAdditions: readonly ConversationAdditionKind[];
+  readonly attachments: readonly ConversationAttachmentViewModel[];
   readonly interactions: readonly ConversationInteractionViewModel[];
   readonly notice?: string;
 }
+
+export type ConversationAdditionKind = 'localImage' | 'mention' | 'skill';
+
+export type ConversationAttachmentViewModel = {
+  readonly id: string;
+  readonly kind: 'localImage';
+  readonly name: string;
+  readonly sizeBytes: number;
+} | {
+  readonly id: string;
+  readonly kind: 'mention';
+  readonly name: string;
+  readonly sizeBytes: number;
+} | {
+  readonly id: string;
+  readonly kind: 'skill';
+  readonly name: string;
+  readonly description: string;
+};
 
 export type ConversationOperation = 'send' | 'stop';
 
@@ -123,6 +144,27 @@ export type ThreadsWebviewToHostMessage =
     readonly sessionId: string;
     readonly threadId: string;
     readonly settings: ConversationRuntimeSettingsUpdate;
+  }
+  | {
+    readonly type: 'threads/conversation/attachment/addImage';
+    readonly sessionId: string;
+    readonly threadId: string;
+  }
+  | {
+    readonly type: 'threads/conversation/attachment/addMention';
+    readonly sessionId: string;
+    readonly threadId: string;
+  }
+  | {
+    readonly type: 'threads/conversation/attachment/addSkill';
+    readonly sessionId: string;
+    readonly threadId: string;
+  }
+  | {
+    readonly type: 'threads/conversation/attachment/remove';
+    readonly sessionId: string;
+    readonly threadId: string;
+    readonly attachmentId: string;
   }
   | {
     readonly type: 'threads/conversation/interaction';
@@ -250,6 +292,25 @@ export function isThreadsWebviewMessage(value: unknown): value is ThreadsWebview
       isRuntimeSettingsUpdate(value.settings)
     );
   }
+  if (
+    value.type === 'threads/conversation/attachment/addImage' ||
+    value.type === 'threads/conversation/attachment/addMention' ||
+    value.type === 'threads/conversation/attachment/addSkill'
+  ) {
+    return (
+      hasOnlyKeys(value, ['type', 'sessionId', 'threadId']) &&
+      isBoundedId(value.sessionId) &&
+      isBoundedId(value.threadId)
+    );
+  }
+  if (value.type === 'threads/conversation/attachment/remove') {
+    return (
+      hasOnlyKeys(value, ['type', 'sessionId', 'threadId', 'attachmentId']) &&
+      isBoundedId(value.sessionId) &&
+      isBoundedId(value.threadId) &&
+      isBoundedId(value.attachmentId)
+    );
+  }
   if (value.type === 'threads/conversation/interaction') {
     return (
       hasOnlyKeys(value, ['type', 'sessionId', 'threadId', 'interactionId', 'reply']) &&
@@ -311,9 +372,38 @@ export function isConversationScreenState(value: unknown): value is Conversation
     isConversationViewModel(value.model) &&
     isConversationExecution(value.execution) &&
     isRuntimeSettings(value.runtime) &&
+    Array.isArray(value.availableAdditions) &&
+    value.availableAdditions.length <= 3 &&
+    new Set(value.availableAdditions).size === value.availableAdditions.length &&
+    value.availableAdditions.every((addition) => (
+      addition === 'localImage' || addition === 'mention' || addition === 'skill'
+    )) &&
+    Array.isArray(value.attachments) &&
+    value.attachments.length <= 40 &&
+    value.attachments.every(isConversationAttachment) &&
     Array.isArray(value.interactions) && value.interactions.every(isConversationInteraction) &&
     (value.notice === undefined || typeof value.notice === 'string')
   );
+}
+
+function isConversationAttachment(value: unknown): value is ConversationAttachmentViewModel {
+  if (
+    !isObject(value) ||
+    !isBoundedId(value.id) ||
+    typeof value.name !== 'string' ||
+    !value.name ||
+    value.name.length > 255
+  ) return false;
+  if (value.kind === 'localImage' || value.kind === 'mention') {
+    return hasOnlyKeys(value, ['id', 'kind', 'name', 'sizeBytes']) &&
+      typeof value.sizeBytes === 'number' &&
+      Number.isSafeInteger(value.sizeBytes) &&
+      value.sizeBytes > 0;
+  }
+  return value.kind === 'skill' &&
+    hasOnlyKeys(value, ['id', 'kind', 'name', 'description']) &&
+    typeof value.description === 'string' &&
+    value.description.length <= 2_000;
 }
 
 function isInteractionReply(value: unknown): value is ConversationInteractionReply {
