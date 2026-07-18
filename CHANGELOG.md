@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added a workspace-scoped **New conversation** flow that applies validated runtime defaults, creates a thread on the first text send, and transitions directly into its running turn.
+- Added duplicate-submit prevention, draft preservation on failure, late-result isolation, notification buffering, and ID-based list deduplication for new conversations.
+- Added strict `config/read` and `thread/start` response boundaries plus fake App Server integration coverage for runtime forwarding and malformed responses.
 - Fixed Runtime settings changes for conversations with granular approval policies while preserving the host-owned policy unchanged.
 - Added an always-visible model, reasoning, and available speed summary with explicit default, unlisted, and unavailable states, plus outside-click and Escape dismissal.
 - Fixed partially loaded turn-completion notifications so streamed text remains visible and the conversation automatically converges on authoritative history without a manual reload.

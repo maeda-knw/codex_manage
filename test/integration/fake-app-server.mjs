@@ -30,6 +30,43 @@ lines.on('line', (line) => {
         }
       });
     }
+  } else if (message.method === 'config/read' && mode === 'new-conversation') {
+    if (message.params?.cwd !== 'D:\\workspace') {
+      send({ id: message.id, error: { code: -32602, message: 'Expected the workspace cwd' } });
+    } else {
+      send({
+        id: message.id,
+        result: {
+          config: {
+            model: 'gpt-fixture',
+            model_reasoning_effort: 'high',
+            service_tier: 'fast',
+            sandbox_mode: 'workspace-write',
+            approval_policy: 'on-request'
+          }
+        }
+      });
+    }
+  } else if (message.method === 'thread/start' && mode === 'new-conversation') {
+    if (
+      message.params?.model !== 'gpt-fixture' ||
+      message.params?.serviceTier !== 'fast' ||
+      message.params?.cwd !== 'D:\\workspace' ||
+      message.params?.approvalPolicy !== 'on-request' ||
+      message.params?.sandbox !== 'workspace-write' ||
+      message.params?.ephemeral !== false ||
+      message.params?.sessionStartSource !== 'startup' ||
+      message.params?.threadSource !== 'codex-thread-manager'
+    ) {
+      send({ id: message.id, error: { code: -32602, message: 'Unexpected thread/start params' } });
+    } else {
+      const thread = { ...conversationThread('thread-new'), turns: [] };
+      send({ id: message.id, result: { ...resumeResponse('thread-new'), thread, serviceTier: 'fast' } });
+    }
+  } else if (message.method === 'config/read' && mode === 'malformed-config-read') {
+    send({ id: message.id, result: { config: { model: ['invalid'] } } });
+  } else if (message.method === 'thread/start' && mode === 'malformed-thread-start') {
+    send({ id: message.id, result: { thread: conversationThread('thread-new') } });
   } else if (message.method === 'thread/read' && mode === 'thread-read') {
     if (message.params?.threadId !== 'thread-1' || message.params?.includeTurns !== true) {
       send({ id: message.id, error: { code: -32602, message: 'Expected includeTurns for thread-1' } });

@@ -46,6 +46,31 @@ summary:focus-visible {
   outline-offset: 2px;
 }
 
+.thread-list-toolbar {
+  display: flex;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 2px 0 8px;
+  background: var(--vscode-sideBar-background);
+}
+
+button.new-conversation {
+  width: 100%;
+  padding: 6px 8px;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+button.new-conversation:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+button.new-conversation:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .thread-group {
   margin-top: 14px;
 }

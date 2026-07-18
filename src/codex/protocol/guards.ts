@@ -4,6 +4,9 @@ import type { Thread } from './generated/v2/Thread';
 import type { ThreadListResponse } from './generated/v2/ThreadListResponse';
 import type { ThreadReadResponse } from './generated/v2/ThreadReadResponse';
 import type { ThreadResumeResponse } from './generated/v2/ThreadResumeResponse';
+import type { ThreadStartResponse } from './generated/v2/ThreadStartResponse';
+import type { AskForApproval } from './generated/v2/AskForApproval';
+import type { SandboxMode } from './generated/v2/SandboxMode';
 import type { ModelListResponse } from './generated/v2/ModelListResponse';
 import type { ThreadItem } from './generated/v2/ThreadItem';
 import type { ThreadStatus } from './generated/v2/ThreadStatus';
@@ -27,6 +30,14 @@ export type ConversationNotification = Extract<
 >;
 
 export type JsonObject = Record<string, unknown>;
+
+export interface ConversationConfigDefaults {
+  readonly model: string | null;
+  readonly reasoningEffort: string | null;
+  readonly serviceTier: string | null;
+  readonly sandbox: SandboxMode | null;
+  readonly approvalPolicy: AskForApproval | null;
+}
 
 export function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -101,6 +112,49 @@ export function parseThreadResumeResponse(
   }
 
   return value as ThreadResumeResponse;
+}
+
+export function parseThreadStartResponse(value: unknown): ThreadStartResponse {
+  if (
+    !isJsonObject(value) ||
+    !isThread(value.thread) ||
+    typeof value.model !== 'string' ||
+    typeof value.modelProvider !== 'string' ||
+    !isNullableString(value.serviceTier) ||
+    typeof value.cwd !== 'string' ||
+    !isStringArray(value.instructionSources) ||
+    !isAskForApproval(value.approvalPolicy) ||
+    !isOneOf(value.approvalsReviewer, ['user', 'auto_review', 'guardian_subagent']) ||
+    !isSandboxPolicy(value.sandbox) ||
+    !isNullableString(value.reasoningEffort)
+  ) {
+    throw new Error('App Server returned an invalid thread/start response.');
+  }
+
+  return value as ThreadStartResponse;
+}
+
+export function parseConversationConfigDefaults(value: unknown): ConversationConfigDefaults {
+  if (!isJsonObject(value) || !isJsonObject(value.config)) {
+    throw new Error('App Server returned an invalid config/read response.');
+  }
+  const config = value.config;
+  if (
+    !isNullableString(config.model) ||
+    !isNullableString(config.model_reasoning_effort) ||
+    !isNullableString(config.service_tier) ||
+    !(config.sandbox_mode === null || isOneOf(config.sandbox_mode, ['read-only', 'workspace-write', 'danger-full-access'])) ||
+    !(config.approval_policy === null || isAskForApproval(config.approval_policy))
+  ) {
+    throw new Error('App Server returned an invalid config/read response.');
+  }
+  return {
+    model: config.model,
+    reasoningEffort: config.model_reasoning_effort,
+    serviceTier: config.service_tier,
+    sandbox: config.sandbox_mode,
+    approvalPolicy: config.approval_policy as AskForApproval | null
+  };
 }
 
 export function parseTurnStartResponse(value: unknown): TurnStartResponse {

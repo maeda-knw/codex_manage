@@ -1,7 +1,7 @@
 # Codex Thread Manager for VS Code 実装計画書
 
 - 作成日: 2026-07-14
-- 状態: vNext Phase D 手動受け入れ確認保留／Phase E.2 完了（Runtime settings の整合性と可視性）
+- 状態: vNext Phase D 手動受け入れ確認保留／Phase E.3 完了（新規スレッド作成）
 - 仮称: `Codex Thread Manager`
 - 調査環境: Windows / Codex CLI `0.142.3`
 
@@ -866,6 +866,16 @@ Phase E は次の原則で進める。
 - 一覧の新規ボタンから最初のメッセージを送り、作成されたスレッドでストリーミング、Stop、承認、Reload、Back を利用できる。
 - 作成失敗、二重操作、別画面への遷移、App Server 切断を自動テストで扱える。
 
+実装結果（2026-07-18）:
+
+- 一覧上部へ接続状態に連動する `New conversation` ボタンを追加し、空の会話ドラフトで最初のテキストメッセージと Runtime settings を指定できるようにした。
+- 最初の送信時に Extension Host が `config/read` と `model/list` で取得・検証したワークスペース既定値を基に、`thread/start`、続けて `turn/start` を実行するようにした。Webview から任意メソッドや任意 `cwd` を指定できない境界を維持した。
+- `thread/start` の応答で作成済み Session の Runtime settings を初期化し、実行中の最初の turn に不要な `thread/resume` を挟まず、ドラフト ID から実 thread ID へ入力状態を保ったまま遷移するようにした。
+- 作成中は二重送信と設定変更を抑止し、thread 作成失敗時はドラフトと入力を保持する。thread 作成後に最初の turn だけ失敗した場合は、作成済み会話へ遷移して同じ入力を再送できるようにした。
+- `thread/started` 通知と `thread/start` 応答の到着順にかかわらず Repository を ID で upsert し、一覧カードを重複させないようにした。作成中に届く turn/item 通知も thread ID 単位でバッファして Session へ反映する。
+- 作成中の Back、別会話への遷移、ワークスペース切替、切断、通知欠落を世代・workspace・session で分離し、遅れて完了した処理が現在画面へ混入しないようにした。
+- Webview protocol、Provider、Repository、レスポンス境界、偽 App Server の統合テストへ、正常作成、二重送信、失敗、遅延完了、通知順序、Runtime 引き渡し、不正レスポンスのケースを追加した。
+
 ### 16.5 Phase E.4: Add メニューと追加入力
 
 実装方針:
@@ -901,7 +911,7 @@ Phase E は次の原則で進める。
 - [x] 既存スレッドの推論レベルと速度が空欄ではなく意味のある状態で表示される。
 - [x] 現在のモデルと推論レベルを会話画面で常に確認できる。
 - [x] Runtime settings を外側クリックと Escape で閉じられる。
-- [ ] 一覧から新規スレッドを開始できる。
+- [x] 一覧から新規スレッドを開始できる。
 - [ ] Add メニューから少なくとも1種類の追加入力を送信できる。
 - [ ] turn をブックマークし、再読み込み後も対象箇所へ移動できる。
 - [ ] Phase E の追加後も既存の一覧管理、会話、承認、再同期、セキュリティ境界が回帰しない。

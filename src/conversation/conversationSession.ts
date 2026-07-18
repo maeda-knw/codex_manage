@@ -172,9 +172,9 @@ export class ConversationSession {
       if (this.disposed || resumed.thread.id !== this.reducer.thread.id) {
         return false;
       }
-      this.modelCatalog = models.filter((model) => !model.hidden);
+      this.modelCatalog = visibleConversationModels(models);
       this.approvalPolicy = resumed.approvalPolicy;
-      this.runtime = runtimeSettingsFrom(
+      this.runtime = createConversationRuntimeSettings(
         this.modelCatalog,
         resumed.model,
         resumed.reasoningEffort,
@@ -199,18 +199,40 @@ export class ConversationSession {
     }
   }
 
+  public initializeRuntimeSettings(
+    models: readonly Model[],
+    model: string,
+    effort: string | null,
+    serviceTier: string | null,
+    sandbox: SandboxMode,
+    approvalPolicy: AskForApproval
+  ): void {
+    if (this.disposed) return;
+    this.modelCatalog = visibleConversationModels(models);
+    this.approvalPolicy = approvalPolicy;
+    this.runtime = createConversationRuntimeSettings(
+      this.modelCatalog,
+      model,
+      effort,
+      serviceTier,
+      sandbox,
+      approvalPolicy
+    );
+    this.publish();
+  }
+
   public updateRuntimeSettings(update: ConversationRuntimeSettingsUpdate): boolean {
     if (
       this.disposed ||
       this.runtime.status !== 'ready' ||
-      !isRuntimeUpdateValid(this.modelCatalog, this.runtime.approvalPolicy, update)
+      !isConversationRuntimeUpdateValid(this.modelCatalog, this.runtime.approvalPolicy, update)
     ) {
       return false;
     }
     if (update.approvalPolicy !== 'custom') {
       this.approvalPolicy = update.approvalPolicy;
     }
-    this.runtime = runtimeSettingsFrom(
+    this.runtime = createConversationRuntimeSettings(
       this.modelCatalog,
       update.model,
       update.effort,
@@ -280,7 +302,7 @@ export class ConversationSession {
       const resumed = await this.client.resumeThread({
         threadId: this.reducer.thread.id,
         ...(this.runtime.status === 'ready' && this.runtime.model ? {
-          model: runtimeModelValue(this.modelCatalog, this.runtime.model),
+          model: conversationRuntimeModelValue(this.modelCatalog, this.runtime.model),
           serviceTier: this.runtime.serviceTier,
           approvalPolicy: this.approvalPolicy,
           sandbox: this.runtime.sandbox
@@ -331,7 +353,7 @@ export class ConversationSession {
         clientUserMessageId: randomUUID(),
         input: [{ type: 'text', text, text_elements: [] }],
         ...(this.runtime.status === 'ready' && this.runtime.model ? {
-          model: runtimeModelValue(this.modelCatalog, this.runtime.model),
+          model: conversationRuntimeModelValue(this.modelCatalog, this.runtime.model),
           serviceTier: this.runtime.serviceTier,
           effort: this.runtime.effort,
           approvalPolicy: this.approvalPolicy
@@ -718,22 +740,12 @@ export class ConversationSession {
     return !this.disposed && generation === this.completionConvergenceGeneration;
   }
 
-  private async loadAllModels(): Promise<readonly Model[]> {
-    const models: Model[] = [];
-    let cursor: string | null = null;
-    for (let page = 0; page < 10; page += 1) {
-      const response = await this.client.listModels({ cursor, limit: 100, includeHidden: false });
-      models.push(...response.data);
-      if (!response.nextCursor) {
-        return models;
-      }
-      cursor = response.nextCursor;
-    }
-    throw new AppServerError('protocol-error', 'model/list returned too many pages.');
+  private loadAllModels(): Promise<readonly Model[]> {
+    return loadConversationModelCatalog(this.client);
   }
 }
 
-function runtimeSettingsFrom(
+export function createConversationRuntimeSettings(
   models: readonly Model[],
   selectedModel: string,
   effort: string | null,
@@ -795,7 +807,7 @@ function runtimeSettingsFrom(
   };
 }
 
-function isRuntimeUpdateValid(
+export function isConversationRuntimeUpdateValid(
   models: readonly Model[],
   currentApprovalPolicy: ConversationRuntimeSettings['approvalPolicy'],
   update: ConversationRuntimeSettingsUpdate
@@ -818,8 +830,28 @@ function findRuntimeModel(models: readonly Model[], selection: string): Model | 
     models.find((candidate) => candidate.model === selection);
 }
 
-function runtimeModelValue(models: readonly Model[], selection: string): string {
+export function conversationRuntimeModelValue(models: readonly Model[], selection: string): string {
   return findRuntimeModel(models, selection)?.model ?? selection;
+}
+
+export function visibleConversationModels(models: readonly Model[]): readonly Model[] {
+  return models.filter((model) => !model.hidden);
+}
+
+export async function loadConversationModelCatalog(
+  client: Pick<ConversationSessionClient, 'listModels'>
+): Promise<readonly Model[]> {
+  const models: Model[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 10; page += 1) {
+    const response = await client.listModels({ cursor, limit: 100, includeHidden: false });
+    models.push(...response.data);
+    if (!response.nextCursor) {
+      return models;
+    }
+    cursor = response.nextCursor;
+  }
+  throw new AppServerError('protocol-error', 'model/list returned too many pages.');
 }
 
 function runtimeValueLabel(value: string): string {

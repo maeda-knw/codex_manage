@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   parseConversationNotification,
+  parseConversationConfigDefaults,
   parseInitializeResponse,
   parseModelListResponse,
   parseThreadListResponse,
-  parseThreadReadResponse
+  parseThreadReadResponse,
+  parseThreadStartResponse
 } from '../../src/codex/protocol/guards';
 import { createThread, createTurn } from '../support/threadFixture';
 
@@ -45,6 +47,46 @@ test('validates model picker metadata before exposing runtime choices', () => {
   assert.throws(
     () => parseModelListResponse({ data: [{ model: 'unsafe' }], nextCursor: null }),
     /invalid model\/list response/u
+  );
+});
+
+test('validates new conversation config and thread boundaries', () => {
+  const defaults = parseConversationConfigDefaults({
+    config: {
+      model: 'gpt-fixture',
+      model_reasoning_effort: null,
+      service_tier: 'priority',
+      sandbox_mode: 'workspace-write',
+      approval_policy: 'on-request'
+    }
+  });
+  assert.equal(defaults.model, 'gpt-fixture');
+  assert.equal(defaults.sandbox, 'workspace-write');
+  assert.equal(parseThreadStartResponse({
+    thread: validThread,
+    model: 'gpt-fixture',
+    modelProvider: 'openai',
+    serviceTier: null,
+    cwd: validThread.cwd,
+    instructionSources: [],
+    approvalPolicy: 'on-request',
+    approvalsReviewer: 'user',
+    sandbox: {
+      type: 'workspaceWrite',
+      writableRoots: [validThread.cwd],
+      networkAccess: false,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false
+    },
+    reasoningEffort: null
+  }).thread.id, validThread.id);
+  assert.throws(
+    () => parseConversationConfigDefaults({ config: { model: 'gpt-fixture', sandbox_mode: 'everything' } }),
+    /invalid config\/read response/u
+  );
+  assert.throws(
+    () => parseThreadStartResponse({ thread: { id: 'partial' } }),
+    /invalid thread\/start response/u
   );
 });
 

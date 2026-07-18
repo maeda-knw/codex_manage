@@ -182,6 +182,24 @@ test('updates names and statuses from protocol notifications using generated fie
   }), false);
 });
 
+test('upserts one new thread whether its notification or response arrives first', () => {
+  const repo = repository(new FakeClient());
+  const started = thread('created', { name: null, preview: '' });
+
+  assert.equal(repo.handleThreadNotification('thread/started', { thread: started }), true);
+  repo.upsertThread({ ...started, preview: 'First message' });
+  assert.deepEqual(repo.snapshot().active.threads.map((item) => item.id), ['created']);
+  assert.equal(repo.snapshot().active.threads[0]?.title, 'First message');
+
+  const responseFirst = thread('response-first', { name: 'Response first' });
+  repo.upsertThread(responseFirst);
+  assert.equal(repo.handleThreadNotification('thread/started', { thread: responseFirst }), true);
+  assert.deepEqual(repo.snapshot().active.threads.map((item) => item.id), [
+    'response-first',
+    'created'
+  ]);
+});
+
 test('prevents concurrent mutations for the same thread and clears the pending flag', async () => {
   const client = new FakeClient();
   client.pages.push(page([thread('a')]));

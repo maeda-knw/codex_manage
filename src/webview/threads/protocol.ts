@@ -101,6 +101,7 @@ export type ConversationOperationResult =
 
 export type ThreadsWebviewToHostMessage =
   | { readonly type: 'threads/ready' }
+  | { readonly type: 'threads/new' }
   | { readonly type: 'threads/open'; readonly threadId: string }
   | { readonly type: 'threads/back' }
   | { readonly type: 'threads/reload' }
@@ -152,6 +153,15 @@ export type ThreadsHostToWebviewMessage =
   }
   | {
     readonly type: 'threads/conversationLoaded';
+    readonly state: ConversationScreenState;
+  }
+  | {
+    readonly type: 'threads/newConversationLoaded';
+    readonly state: ConversationScreenState;
+  }
+  | {
+    readonly type: 'threads/conversationCreated';
+    readonly previousThreadId: string;
     readonly state: ConversationScreenState;
   }
   | {
@@ -209,6 +219,9 @@ export function isThreadsWebviewMessage(value: unknown): value is ThreadsWebview
   }
   if (value.type === 'threads/open') {
     return isBoundedId(value.threadId);
+  }
+  if (value.type === 'threads/new') {
+    return hasOnlyKeys(value, ['type']);
   }
   if (value.type === 'threads/conversation/send') {
     return (
@@ -269,8 +282,11 @@ export function isThreadsHostMessage(value: unknown): value is ThreadsHostToWebv
     case 'threads/conversationLoading':
       return isBoundedId(value.sessionId) && isBoundedId(value.threadId) && typeof value.title === 'string';
     case 'threads/conversationLoaded':
+    case 'threads/newConversationLoaded':
     case 'threads/conversationState':
       return isConversationScreenState(value.state);
+    case 'threads/conversationCreated':
+      return isBoundedId(value.previousThreadId) && isConversationScreenState(value.state);
     case 'threads/conversationError':
       return (
         isBoundedId(value.sessionId) &&

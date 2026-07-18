@@ -55,6 +55,7 @@ const conversationState = {
 test('accepts only the explicit sidebar navigation messages', () => {
   for (const message of [
     { type: 'threads/ready' },
+    { type: 'threads/new' },
     { type: 'threads/open', threadId: 'thread-1' },
     { type: 'threads/back' },
     { type: 'threads/reload' }
@@ -63,6 +64,7 @@ test('accepts only the explicit sidebar navigation messages', () => {
   }
 
   assert.equal(isThreadsWebviewMessage({ type: 'threads/open', threadId: '' }), false);
+  assert.equal(isThreadsWebviewMessage({ type: 'threads/new', method: 'thread/start' }), false);
   assert.equal(isThreadsWebviewMessage({ type: 'threads/execute', command: 'anything' }), false);
 });
 
@@ -210,6 +212,15 @@ test('validates persisted navigation state and host messages', () => {
     sessionId: 'session-1',
     threadId: 'thread-1',
     title: 'Thread 1'
+  }), true);
+  assert.equal(isThreadsHostMessage({
+    type: 'threads/newConversationLoaded',
+    state: conversationState
+  }), true);
+  assert.equal(isThreadsHostMessage({
+    type: 'threads/conversationCreated',
+    previousThreadId: 'draft-1',
+    state: { ...conversationState, model: { ...conversationState.model, threadId: 'thread-created' } }
   }), true);
   assert.equal(isThreadsHostMessage({
     type: 'threads/conversationLoaded',

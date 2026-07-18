@@ -82,6 +82,9 @@ Record the environment and result for each release candidate. Do not mark Phase 
 - Select each icon and the gaps around the icon strip and confirm none opens a conversation or triggers a neighboring card action.
 - Use **Back** and confirm the loaded list, scroll position, and selected-row focus are restored where possible.
 - Open two different threads in sequence and confirm their histories do not mix.
+- Select **New conversation**, change its Runtime settings, send the first text message, and confirm exactly one new card appears and the sidebar streams the created conversation without an intermediate reload.
+- Double-click Send while creating a conversation and confirm only one thread is created; repeat with an App Server failure and confirm the draft text remains available for retry.
+- Start creating a conversation and immediately select **Back**; confirm a late response does not reopen the conversation or overwrite the visible list, and the completed thread appears once after the list updates.
 - Send a multiline text prompt with Ctrl/Cmd+Enter and confirm Enter alone inserts a line break.
 - Double-click Send and press the shortcut repeatedly while sending; confirm only one turn starts and the draft clears only after acceptance.
 - Confirm the Codex reply grows in place while streaming without collapsing an expanded work card or moving focus unexpectedly.

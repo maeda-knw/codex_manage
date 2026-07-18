@@ -14,6 +14,7 @@ The MVP is packaged for private VSIX installation. Marketplace publication is no
 - Updates names, archive state, and execution status from App Server notifications.
 - Opens a selected thread's conversation in the same Codex sidebar, including stored user/Codex messages, turn state, and summarized work cards.
 - Sends text prompts to an existing thread, streams Codex replies in place, and stops the active turn when needed.
+- Starts a workspace-scoped conversation from the sidebar, applies the selected Runtime settings, and sends its first text prompt without creating a duplicate list entry.
 - Keeps the last confirmed transcript visible across disconnects and re-synchronizes it with `thread/resume` plus `thread/read` after reconnecting.
 - Preserves the list position when navigating back and restores the selected conversation by re-reading history after a VS Code window reload.
 - Keeps Pinned and Recent threads expanded by default, keeps Archive collapsed, and remembers each group's visibility.
@@ -60,13 +61,14 @@ Reload VS Code after installation.
 2. Open the Codex activity-bar view.
 3. Use the gear icon beside the refresh icon in the native **Threads** view title to open the extension settings.
 4. Use the refresh icon if the list has not loaded.
-5. Select anywhere in a thread card except its action icons to open stored conversation history in the same Codex sidebar.
-6. Select a group heading to expand or collapse Pinned, Recent threads, or Archive.
-7. Hover a row or focus it with the keyboard, then use its inline icons to pin, rename, archive, or restore it.
-8. Enter a text message and select **Send**, or press Ctrl+Enter / Cmd+Enter. Enter by itself inserts a new line.
-9. While Codex is responding, select **Stop** to interrupt that turn.
-10. Use **Reload** to reconnect and re-synchronize the selected conversation, then **Back** to return to the list.
-11. Open **View: Toggle Output** and select `Codex Thread Manager` for connection diagnostics.
+5. Select **New conversation**, choose Runtime settings if needed, then enter the first text message and select **Send**.
+6. Select anywhere in an existing thread card except its action icons to open stored conversation history in the same Codex sidebar.
+7. Select a group heading to expand or collapse Pinned, Recent threads, or Archive.
+8. Hover a row or focus it with the keyboard, then use its inline icons to pin, rename, archive, or restore it.
+9. Enter a text message and select **Send**, or press Ctrl+Enter / Cmd+Enter. Enter by itself inserts a new line.
+10. While Codex is responding, select **Stop** to interrupt that turn.
+11. Use **Reload** to reconnect and re-synchronize the selected conversation, then **Back** to return to the list.
+12. Open **View: Toggle Output** and select `Codex Thread Manager` for connection diagnostics.
 
 Only threads whose `cwd` exactly matches one of the open workspace folder paths are shown. Threads started in a nested subdirectory are not included in this MVP.
 
@@ -126,13 +128,13 @@ The local list remains unchanged when the App Server rejects an operation. Revie
 
 ## Limitations
 
-- Text conversation is supported only for existing threads; image, file, Skill, and mention inputs are not available yet.
+- Text conversation is supported for existing and newly created threads; image, file, Skill, and mention inputs are not available yet.
 - Command, file-change, and permission approvals plus Codex follow-up questions are supported. Unsupported App Server request types are still rejected rather than approved implicitly.
 - Standard MCP form elicitations support strings, numbers, booleans, and single-select enums; OpenAI-specific forms, multi-select enums, and URL-mode elicitations can only be declined or cancelled.
 - Raw reasoning content, command output, file diffs, and tool arguments/results are intentionally not displayed.
 - Some older turns may contain only summary history, which is indicated in the conversation view.
 - Very large stored histories are currently loaded and rendered as one snapshot; progressive rendering is planned for a later vNext phase.
-- No new thread creation.
+- New conversations require a first text message; creating an empty thread and choosing among multiple workspace roots are not available yet.
 - No thread deletion or bulk operations.
 - No pin synchronization outside the current VS Code workspace.
 - No nested-workspace `cwd` matching.
