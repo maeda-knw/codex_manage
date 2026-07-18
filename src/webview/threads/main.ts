@@ -514,6 +514,8 @@ function showConversationShell(
   settingsSummary.textContent = 'Runtime settings';
   const settingsGrid = document.createElement('div');
   settingsGrid.className = 'conversation-runtime-grid';
+  const settingsMenu = document.createElement('div');
+  settingsMenu.className = 'conversation-runtime-menu';
   const model = runtimeSelect('Model', 'conversation-runtime-model');
   const effort = runtimeSelect('Reasoning', 'conversation-runtime-effort');
   const serviceTier = runtimeSelect('Speed', 'conversation-runtime-speed');
@@ -523,7 +525,8 @@ function showConversationShell(
   const settingsHint = document.createElement('p');
   settingsHint.className = 'conversation-runtime-hint';
   settingsHint.textContent = 'Changes apply to the next turn.';
-  settings.append(settingsSummary, settingsGrid, settingsHint);
+  settingsMenu.append(settingsGrid, settingsHint);
+  settings.append(settingsSummary, settingsMenu);
   tools.append(addWrap, settings);
   const inputLabel = document.createElement('label');
   inputLabel.className = 'sr-only';

@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { Thread } from '../../src/codex/protocol/generated/v2/Thread';
 import type { ThreadResumeResponse } from '../../src/codex/protocol/generated/v2/ThreadResumeResponse';
 import type { Turn } from '../../src/codex/protocol/generated/v2/Turn';
+import type { Model } from '../../src/codex/protocol/generated/v2/Model';
 import {
   ConversationSession,
   type ConversationSessionClient
@@ -368,30 +369,35 @@ test('updates cached display metadata without changing conversation history', ()
 test('loads validated runtime choices and applies changed settings only to the next turn', async () => {
   const resumeParams: unknown[] = [];
   const startParams: unknown[] = [];
+  const fixtureModel: Model = {
+    id: 'fixture-id',
+    model: 'gpt-fixture',
+    upgrade: null,
+    upgradeInfo: null,
+    availabilityNux: null,
+    displayName: 'GPT Fixture',
+    description: 'Fixture model',
+    hidden: false,
+    supportedReasoningEfforts: [
+      { reasoningEffort: 'medium', description: 'Balanced' },
+      { reasoningEffort: 'high', description: 'More reasoning' }
+    ],
+    defaultReasoningEffort: 'medium',
+    inputModalities: [],
+    supportsPersonality: false,
+    additionalSpeedTiers: [],
+    serviceTiers: [{ id: 'fast', name: 'Fast', description: 'Lower latency' }],
+    defaultServiceTier: null,
+    isDefault: true
+  };
   const client: ConversationSessionClient = {
     ...passiveClient(),
     listModels: async () => ({
-      data: [{
-        id: 'fixture-id',
-        model: 'gpt-fixture',
-        upgrade: null,
-        upgradeInfo: null,
-        availabilityNux: null,
-        displayName: 'GPT Fixture',
-        description: 'Fixture model',
-        hidden: false,
-        supportedReasoningEfforts: [
-          { reasoningEffort: 'medium', description: 'Balanced' },
-          { reasoningEffort: 'high', description: 'More reasoning' }
-        ],
-        defaultReasoningEffort: 'medium',
-        inputModalities: [],
-        supportsPersonality: false,
-        additionalSpeedTiers: [],
-        serviceTiers: [{ id: 'fast', name: 'Fast', description: 'Lower latency' }],
-        defaultServiceTier: null,
-        isDefault: true
-      }],
+      data: [
+        fixtureModel,
+        { ...fixtureModel, id: 'gpt-5.6-terra-id', model: 'gpt-5.6-terra', displayName: 'GPT-5.6-Terra', isDefault: false },
+        { ...fixtureModel, id: 'gpt-5.6-luna-id', model: 'gpt-5.6-luna', displayName: 'GPT-5.6-Luna', isDefault: false }
+      ],
       nextCursor: null
     }),
     resumeThread: async (params) => {
@@ -406,9 +412,14 @@ test('loads validated runtime choices and applies changed settings only to the n
   const session = new ConversationSession(client, createThread());
 
   assert.equal(await session.loadRuntimeSettings(), true);
-  assert.equal(session.snapshot().runtime.model, 'gpt-fixture');
+  assert.equal(session.snapshot().runtime.model, 'fixture-id');
+  assert.deepEqual(session.snapshot().runtime.models.map((model) => [model.value, model.label]), [
+    ['fixture-id', 'GPT Fixture'],
+    ['gpt-5.6-terra-id', 'GPT-5.6-Terra'],
+    ['gpt-5.6-luna-id', 'GPT-5.6-Luna']
+  ]);
   assert.equal(session.updateRuntimeSettings({
-    model: 'gpt-fixture',
+    model: 'fixture-id',
     effort: 'high',
     serviceTier: 'fast',
     sandbox: 'read-only',

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed the Runtime settings popover so it opens above its trigger without shifting the composer controls.
+- Fixed runtime model selection to preserve every App Server catalog entry, including GPT-5.6 Sol, Terra, and Luna.
 - Added pinned Node.js/npm toolchain metadata, cache-first dependency bootstrap commands, and a dependency doctor that rejects partial npm extractions.
 - Added explicit npm install-script decisions so only the required esbuild setup script is allowed during dependency installation.
 - Added in-conversation command, file-change, and permission approval cards with one-time and session-scoped decisions.

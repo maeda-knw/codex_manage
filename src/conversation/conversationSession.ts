@@ -264,7 +264,7 @@ export class ConversationSession {
       const resumed = await this.client.resumeThread({
         threadId: this.reducer.thread.id,
         ...(this.runtime.status === 'ready' && this.runtime.model ? {
-          model: this.runtime.model,
+          model: runtimeModelValue(this.modelCatalog, this.runtime.model),
           serviceTier: this.runtime.serviceTier,
           approvalPolicy: this.approvalPolicy,
           sandbox: this.runtime.sandbox
@@ -315,7 +315,7 @@ export class ConversationSession {
         clientUserMessageId: randomUUID(),
         input: [{ type: 'text', text, text_elements: [] }],
         ...(this.runtime.status === 'ready' && this.runtime.model ? {
-          model: this.runtime.model,
+          model: runtimeModelValue(this.modelCatalog, this.runtime.model),
           serviceTier: this.runtime.serviceTier,
           effort: this.runtime.effort,
           approvalPolicy: this.approvalPolicy
@@ -635,19 +635,20 @@ function runtimeSettingsFrom(
   sandbox: SandboxMode,
   approvalPolicy: AskForApproval
 ): ConversationRuntimeSettings {
-  const model = models.find((candidate) => candidate.model === selectedModel);
+  const model = findRuntimeModel(models, selectedModel);
   const modelOptions = models.map((candidate) => ({
-    value: candidate.model,
+    value: candidate.id,
     label: candidate.displayName,
     description: candidate.description
   }));
-  if (!modelOptions.some((option) => option.value === selectedModel)) {
+  const modelSelection = model?.id ?? selectedModel;
+  if (!modelOptions.some((option) => option.value === modelSelection)) {
     modelOptions.unshift({ value: selectedModel, label: selectedModel, description: 'Current model' });
   }
   return {
     status: 'ready',
     models: modelOptions,
-    model: selectedModel,
+    model: modelSelection,
     efforts: (model?.supportedReasoningEfforts ?? []).map((option) => ({
       value: option.reasoningEffort,
       label: option.reasoningEffort,
@@ -670,7 +671,7 @@ function isRuntimeUpdateValid(
   models: readonly Model[],
   update: ConversationRuntimeSettingsUpdate
 ): boolean {
-  const model = models.find((candidate) => candidate.model === update.model);
+  const model = models.find((candidate) => candidate.id === update.model);
   return Boolean(
     model &&
     (update.effort === null || model.supportedReasoningEfforts.some((option) => option.reasoningEffort === update.effort)) &&
@@ -678,6 +679,15 @@ function isRuntimeUpdateValid(
     ['read-only', 'workspace-write', 'danger-full-access'].includes(update.sandbox) &&
     ['untrusted', 'on-request', 'never'].includes(update.approvalPolicy)
   );
+}
+
+function findRuntimeModel(models: readonly Model[], selection: string): Model | undefined {
+  return models.find((candidate) => candidate.id === selection) ??
+    models.find((candidate) => candidate.model === selection);
+}
+
+function runtimeModelValue(models: readonly Model[], selection: string): string {
+  return findRuntimeModel(models, selection)?.model ?? selection;
 }
 
 function sandboxModeFromPolicy(policy: SandboxPolicy): SandboxMode {
