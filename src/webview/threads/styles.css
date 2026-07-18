@@ -415,7 +415,7 @@ button.conversation-add,
 
 .conversation-runtime-label {
   color: var(--vscode-foreground);
-  font-size: 0.76rem;
+  font-size: inherit;
   line-height: 1.2;
 }
 
@@ -527,7 +527,7 @@ button.conversation-add,
 .conversation-runtime-summary {
   min-width: 0;
   color: var(--vscode-foreground);
-  font-size: 0.78rem;
+  font-size: inherit;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
