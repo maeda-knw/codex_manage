@@ -100,6 +100,8 @@ export class ConversationSession {
   private sendPending = false;
   private stopPending = false;
   private resyncPending = false;
+  private completionConvergencePending = false;
+  private completionConvergenceGeneration = 0;
   private disposed = false;
   private settingsPending = false;
   private modelCatalog: readonly Model[] = [];
@@ -238,6 +240,10 @@ export class ConversationSession {
         sync: 'stale',
         notice: 'Conversation history must be re-synchronized before sending another message.'
       });
+      return false;
+    }
+    if (this.completionConvergencePending) {
+      this.updatePresentation({ notice: 'Wait for the completed response to finish synchronizing.' });
       return false;
     }
     if (
@@ -463,6 +469,14 @@ export class ConversationSession {
     if (previousReducer !== this.reducer || presentationChanged) {
       this.publish();
     }
+    if (notification.method === 'turn/completed') {
+      const completed = this.reducer.thread.turns.find(
+        (turn) => turn.id === notification.params.turn.id
+      );
+      if (completed?.itemsView !== 'full') {
+        this.scheduleCompletionConvergence(notification.params.turn.id);
+      }
+    }
   }
 
   public markDisconnected(): void {
@@ -473,6 +487,7 @@ export class ConversationSession {
     this.sendPending = false;
     this.stopPending = false;
     this.resyncPending = false;
+    this.cancelCompletionConvergence();
     this.updatePresentation({
       sync: 'stale',
       operation: activeConversationTurnId(this.reducer) ? 'running' : 'idle',
@@ -485,6 +500,7 @@ export class ConversationSession {
       return false;
     }
 
+    this.cancelCompletionConvergence();
     this.resyncPending = true;
     const generation = ++this.asyncGeneration;
     this.updatePresentation({ operation: 'resuming', notice: null });
@@ -559,6 +575,7 @@ export class ConversationSession {
     this.sendPending = false;
     this.stopPending = false;
     this.resyncPending = false;
+    this.cancelCompletionConvergence();
     this.listeners.clear();
   }
 
@@ -610,6 +627,85 @@ export class ConversationSession {
 
   private isCurrent(generation: number): boolean {
     return !this.disposed && generation === this.asyncGeneration;
+  }
+
+  private scheduleCompletionConvergence(turnId: string): void {
+    if (this.disposed || this.resyncPending || this.completionConvergencePending) {
+      return;
+    }
+    this.completionConvergencePending = true;
+    const generation = ++this.completionConvergenceGeneration;
+    void this.convergeCompletedTurn(turnId, generation).finally(() => {
+      if (this.isCompletionConvergenceCurrent(generation)) {
+        this.completionConvergencePending = false;
+      }
+    });
+  }
+
+  private async convergeCompletedTurn(turnId: string, generation: number): Promise<void> {
+    try {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const notificationVersion = this.notificationVersion;
+        const response = await this.client.readThread({
+          threadId: this.reducer.thread.id,
+          includeTurns: true
+        });
+        if (!this.isCompletionConvergenceCurrent(generation)) {
+          return;
+        }
+        if (response.thread.id !== this.reducer.thread.id) {
+          this.failCompletionConvergence();
+          return;
+        }
+        if (notificationVersion !== this.notificationVersion) {
+          continue;
+        }
+        const completed = response.thread.turns.find((turn) => turn.id === turnId);
+        if (!completed || completed.status === 'inProgress' || completed.itemsView !== 'full') {
+          if (attempt < 2) {
+            await completionRetryDelay((attempt + 1) * 25);
+            if (!this.isCompletionConvergenceCurrent(generation)) {
+              return;
+            }
+          }
+          continue;
+        }
+
+        const hydrated = hydrateConversationReducer(this.reducer, response.thread);
+        if (hydrated.needsResync) {
+          this.failCompletionConvergence();
+          return;
+        }
+        this.reducer = hydrated;
+        this.sync = 'ready';
+        this.operation = reducerOperation(hydrated);
+        this.notice = turnCompletionNotice(completed.status);
+        this.publish();
+        return;
+      }
+      this.failCompletionConvergence();
+    } catch {
+      if (this.isCompletionConvergenceCurrent(generation)) {
+        this.failCompletionConvergence();
+      }
+    }
+  }
+
+  private failCompletionConvergence(): void {
+    this.updatePresentation({
+      sync: 'stale',
+      operation: reducerOperation(this.reducer),
+      notice: 'The completed response could not be synchronized. Reload the conversation to try again.'
+    });
+  }
+
+  private cancelCompletionConvergence(): void {
+    this.completionConvergenceGeneration += 1;
+    this.completionConvergencePending = false;
+  }
+
+  private isCompletionConvergenceCurrent(generation: number): boolean {
+    return !this.disposed && generation === this.completionConvergenceGeneration;
   }
 
   private async loadAllModels(): Promise<readonly Model[]> {
@@ -717,6 +813,10 @@ function reducerOperation(state: ConversationReducerState): ConversationSessionO
     return 'running';
   }
   return state.thread.status.type === 'active' ? 'resuming' : 'idle';
+}
+
+function completionRetryDelay(durationMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, durationMs));
 }
 
 function safeSessionErrorMessage(error: unknown, action: string): string {

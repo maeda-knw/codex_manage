@@ -1,7 +1,7 @@
 # Codex Thread Manager for VS Code 実装計画書
 
 - 作成日: 2026-07-14
-- 状態: vNext Phase D 実施中（自動品質ゲート完了、手動受け入れ確認保留）／Phase E 実利用フィードバック改善計画策定
+- 状態: vNext Phase D 手動受け入れ確認保留／Phase E.1 完了（会話完了時の自動収束）
 - 仮称: `Codex Thread Manager`
 - 調査環境: Windows / Codex CLI `0.142.3`
 
@@ -806,6 +806,15 @@ Phase E は次の原則で進める。
 - 自動再同期が必要な場合も、別スレッドの履歴、実行状態、承認要求を変更しない。
 - 再同期の成功・失敗、切断、画面遷移を偽 App Server 統合テストで再現できる。
 
+実装結果（2026-07-18）:
+
+- `turn/completed` が `itemsView: notLoaded` または `summary` で届いた場合、ライブ中に受信済みの item を部分完了 payload で破棄せず、確定表示まで保持するよう reducer を変更した。
+- 部分完了を検出すると、Extension Host が対象 thread／turn に相関付けた `thread/read(includeTurns: true)` を自動実行し、`itemsView: full` の権威ある履歴へ収束するようにした。
+- read 中に通知が増えた場合は古い結果を採用せず最大3回まで再取得し、重複完了通知から並行した同期処理を開始しないようにした。
+- すでに full で確定した turn へ古い部分完了通知が届いても格下げせず、切断、手動 Reload、dispose 後に遅れて完了した read も画面へ適用しないようにした。
+- 自動収束に失敗した場合は provisional な本文を残したまま sync を stale にし、内部エラーを露出せず手動 Reload を案内するようにした。
+- reducer、ConversationSession、サイドバー Provider のテストへ、本文保持、自動 read、重複通知、失敗、切断、順序逆転、本文通知なしの完了ケースを追加した。
+
 ### 16.3 Phase E.2: Runtime settings の整合性と可視性
 
 対象:
@@ -878,7 +887,7 @@ Phase E は次の原則で進める。
 
 ### 16.7 Phase E の受け入れ条件
 
-- [ ] 送信した turn の Codex 発言が Reload なしで確定表示される。
+- [x] 送信した turn の Codex 発言が Reload なしで確定表示される。
 - [ ] Sol／Terra／Luna の選択が次の turn へ反映される。
 - [ ] 既存スレッドの推論レベルと速度が空欄ではなく意味のある状態で表示される。
 - [ ] 現在のモデルと推論レベルを会話画面で常に確認できる。
