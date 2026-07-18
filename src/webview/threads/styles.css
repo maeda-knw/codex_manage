@@ -409,27 +409,14 @@ button.conversation-add,
 }
 
 .conversation-runtime-settings > summary {
-  display: grid;
-  justify-items: end;
-  gap: 1px;
-  max-width: min(360px, calc(100vw - 90px));
-  padding: 4px 8px;
+  display: block;
+  padding: 6px 8px;
 }
 
 .conversation-runtime-label {
-  color: var(--vscode-descriptionForeground);
-  font-size: 0.66rem;
-  line-height: 1;
-}
-
-.conversation-runtime-current {
-  display: block;
-  max-width: 100%;
-  overflow: hidden;
+  color: var(--vscode-foreground);
   font-size: 0.76rem;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.2;
 }
 
 .conversation-add-menu {
@@ -531,12 +518,28 @@ button.conversation-add,
   justify-content: space-between;
 }
 
+.conversation-composer-meta {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.conversation-runtime-summary {
+  min-width: 0;
+  color: var(--vscode-foreground);
+  font-size: 0.78rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
 .conversation-composer-status {
   min-width: 0;
   color: var(--vscode-descriptionForeground);
   font-size: 0.78rem;
   overflow-wrap: anywhere;
 }
+
+.conversation-composer-status:empty { display: none; }
 
 .conversation-composer-controls {
   display: flex;

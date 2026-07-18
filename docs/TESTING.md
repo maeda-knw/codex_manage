@@ -98,8 +98,8 @@ Record the environment and result for each release candidate. Do not mark Phase 
 - Use Arrow Up/Down, Home/End, Tab, Shift+Tab, the collapsible group headings, and every inline action to confirm visible focus and keyboard access; arrow navigation must skip collapsed groups, and list updates must preserve the active heading or card control.
 - Pin into a collapsed Pinned group, archive into a collapsed Archive group, restore into Recent, and confirm focus moves to the corresponding action, card, or destination group heading without disappearing.
 - Confirm message text containing HTML-like text is displayed literally and does not create executable markup.
-- Confirm the Runtime trigger always shows the current model and reasoning level, plus speed when available; default, unlisted, and unavailable values must never render as a blank label.
-- Open Runtime settings and confirm its trigger does not move, the menu opens above it, and Sol, Terra, and Luna can each be selected when advertised by the App Server, including for a conversation started by the official Codex extension with a custom approval policy.
+- Confirm the composer footer always shows the current model as `5.6 Sol` or the matching version/variant, the effective reasoning level without a `Default` marker, `Fast` only when that speed is effective, and `Read only`, `Workspace`, or `Full access` permission.
+- Open Runtime settings and confirm its short trigger does not move, the menu opens above it, and Sol, Terra, and Luna can each be selected when advertised by the App Server, including for a conversation started by the official Codex extension with a custom approval policy.
 - Confirm clicks inside Runtime settings keep it open, an outside click closes it, and Escape closes it while returning keyboard focus to the Runtime trigger.
 - In forced-colors/high-contrast mode, confirm thread cards, menus, fields, messages, and focused controls retain visible boundaries and a two-pixel focus indicator.
 - Confirm partial stored history shows a summary notice rather than pretending all work items are present.

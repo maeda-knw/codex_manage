@@ -843,9 +843,9 @@ Phase E は次の原則で進める。
 - 公式 Codex 拡張由来の granular approval policy が `custom` と表示される場合、Webview がモデルを含む全設定変更を送信前に拒否していた原因を修正した。`custom` は Extension Host が所有する元の granular policy を保持する指定として扱い、Webview から内容を改変できない境界を維持した。
 - Sol／Terra／Luna の各 catalog ID と App Server へ渡す model 値を対応付け、granular approval policy を保持したまま各モデルが次の `thread/resume` と `turn/start` へ反映される回帰テストを追加した。
 - reasoning effort と service tier の現在値、カタログ既定値、カタログ外の現在値を分離し、`Default`、`Current (unlisted)`、`Unavailable` のいずれかで空欄なく表示するようにした。
-- composer の Runtime トリガーへモデル、推論レベル、利用可能な速度を常時表示し、長い表示はレイアウトを動かさず省略するようにした。
+- composer 下部へモデル、推論レベル、Fast 時だけの速度、Sandbox 権限を常時表示するようにした。モデルは `5.6 Sol` のように短縮し、既定値でも `Default` を付けず実効値だけを表示する。Runtime トリガーは短いラベルだけに戻し、狭いサイドバーでも潰れにくくした。
 - Runtime settings はトリガー上部に固定したまま、外側クリックと Escape で閉じ、Escape ではトリガーへフォーカスを戻すようにした。メニュー内の選択操作では閉じず、Add メニューとの同時表示も避けるようにした。
-- runtime state、Webview protocol、表示サマリーへ単体テストを追加し、既存の App Server 統合テストを含む品質ゲートで回帰がないことを確認した。
+- runtime state、Webview protocol、短縮モデル名、既定推論、Fast 判定、権限を含む表示サマリーへ単体テストを追加し、既存の App Server 統合テストを含む品質ゲートで回帰がないことを確認した。
 
 ### 16.4 Phase E.3: 新規スレッド作成
 

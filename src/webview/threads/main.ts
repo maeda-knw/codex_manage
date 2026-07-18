@@ -51,7 +51,7 @@ interface ConversationComposerTarget {
   readonly addMenu: HTMLElement;
   readonly settings: HTMLDetailsElement;
   readonly settingsSummary: HTMLElement;
-  readonly settingsCurrent: HTMLElement;
+  readonly runtimeSummary: HTMLElement;
   readonly model: HTMLSelectElement;
   readonly effort: HTMLSelectElement;
   readonly serviceTier: HTMLSelectElement;
@@ -572,10 +572,7 @@ function showConversationShell(
   const settingsLabel = document.createElement('span');
   settingsLabel.className = 'conversation-runtime-label';
   settingsLabel.textContent = 'Runtime';
-  const settingsCurrent = document.createElement('span');
-  settingsCurrent.className = 'conversation-runtime-current';
-  settingsCurrent.textContent = 'Loading settings…';
-  settingsSummary.append(settingsLabel, settingsCurrent);
+  settingsSummary.append(settingsLabel);
   settings.addEventListener('toggle', () => {
     if (settings.open) {
       addMenu.hidden = true;
@@ -618,6 +615,11 @@ function showConversationShell(
 
   const footer = document.createElement('div');
   footer.className = 'conversation-composer-footer';
+  const footerMeta = document.createElement('div');
+  footerMeta.className = 'conversation-composer-meta';
+  const runtimeSummary = document.createElement('span');
+  runtimeSummary.className = 'conversation-runtime-summary';
+  runtimeSummary.textContent = 'Loading settings…';
   const status = document.createElement('span');
   status.id = 'conversation-composer-status';
   status.className = 'conversation-composer-status';
@@ -634,7 +636,8 @@ function showConversationShell(
   send.className = 'conversation-send';
   send.title = 'Send (Ctrl/Cmd+Enter)';
   controls.append(stop, send);
-  footer.append(status, controls);
+  footerMeta.append(runtimeSummary, status);
+  footer.append(footerMeta, controls);
   composer.append(tools, inputLabel, input, error, footer);
 
   section.append(header, notice, content, interactions, announcer, composer);
@@ -642,7 +645,7 @@ function showConversationShell(
   conversationTarget = { title: titleElement, meta, notice, content };
   conversationComposerTarget = {
     container: composer, input, send, stop, status, error, announcer,
-    add, addMenu, settings, settingsSummary, settingsCurrent,
+    add, addMenu, settings, settingsSummary, runtimeSummary,
     model: model.select,
     effort: effort.select,
     serviceTier: serviceTier.select,
@@ -1083,7 +1086,9 @@ function renderRuntimeSettings(target: ConversationComposerTarget): void {
   const ready = runtime?.status === 'ready';
   target.settings.classList.toggle('is-unavailable', !ready);
   const summaryText = runtimeSettingsSummary(runtime);
-  target.settingsCurrent.textContent = summaryText;
+  target.runtimeSummary.textContent = summaryText;
+  target.runtimeSummary.title = summaryText;
+  target.runtimeSummary.setAttribute('aria-label', `Current runtime: ${summaryText}`);
   target.settingsSummary.setAttribute('aria-label', `Runtime settings: ${summaryText}`);
   syncSelect(target.model, runtime?.models ?? [], runtime?.model, false);
   syncSelect(
@@ -1257,7 +1262,7 @@ function conversationStatus(execution: ConversationExecutionViewModel | undefine
   }
   switch (execution?.kind) {
     case 'idle':
-      return 'Ctrl/Cmd+Enter to send.';
+      return '';
     case 'resuming':
       return 'Resuming conversation…';
     case 'starting':

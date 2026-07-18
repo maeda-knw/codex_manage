@@ -21,11 +21,33 @@ function runtime(overrides: Partial<ConversationRuntimeSettings> = {}): Conversa
   };
 }
 
-test('summarizes the current model, effective default effort, and available speed', () => {
+test('summarizes the compact model, effective effort, and workspace permission without default labels', () => {
   assert.equal(
     runtimeSettingsSummary(runtime()),
-    'GPT-5.6-Sol · Default (Low) · Default speed'
+    '5.6 Sol · Low · Workspace'
   );
+});
+
+test('shows speed only when Fast is effective and maps full access permission', () => {
+  assert.equal(runtimeSettingsSummary(runtime({
+    models: [{ value: 'gpt-5.6-terra', label: 'GPT-5.6-Terra', description: 'Frontier' }],
+    model: 'gpt-5.6-terra',
+    efforts: [{ value: 'high', label: 'High', description: 'Thorough' }],
+    effort: 'high',
+    defaultEffort: 'low',
+    serviceTier: 'priority',
+    sandbox: 'danger-full-access'
+  })), '5.6 Terra · High · Fast · Full access');
+
+  assert.equal(runtimeSettingsSummary(runtime({
+    serviceTiers: [{ value: 'flex', label: 'Flexible', description: 'Lower priority' }],
+    serviceTier: 'flex',
+    sandbox: 'read-only'
+  })), '5.6 Sol · Low · Read only');
+
+  assert.equal(runtimeSettingsSummary(runtime({
+    defaultServiceTier: 'priority'
+  })), '5.6 Sol · Low · Fast · Workspace');
 });
 
 test('distinguishes unavailable and unlisted runtime values without blank labels', () => {
@@ -39,5 +61,5 @@ test('distinguishes unavailable and unlisted runtime values without blank labels
     serviceTiers: [],
     serviceTier: null,
     defaultServiceTier: null
-  })), 'private-model (current, unlisted) · Ultra (current, unlisted)');
+  })), 'private-model · Ultra · Workspace');
 });
