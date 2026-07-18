@@ -64,6 +64,66 @@ test('reads the requested thread with stored turns and items', async (t) => {
   assert.equal(response.thread.turns[0]?.items[1]?.type, 'agentMessage');
 });
 
+test('reads workspace defaults and starts a thread with the selected runtime', async (t) => {
+  const logs: string[] = [];
+  const client = createClient('new-conversation', logs);
+  t.after(() => client.dispose());
+
+  const config = await client.readConversationConfig({ cwd: 'D:\\workspace' });
+  assert.deepEqual(config, {
+    model: 'gpt-fixture',
+    reasoningEffort: 'high',
+    serviceTier: 'fast',
+    sandbox: 'workspace-write',
+    approvalPolicy: 'on-request'
+  });
+
+  const started = await client.startThread({
+    model: config.model,
+    serviceTier: config.serviceTier,
+    cwd: 'D:\\workspace',
+    approvalPolicy: config.approvalPolicy,
+    sandbox: config.sandbox,
+    ephemeral: false,
+    sessionStartSource: 'startup',
+    threadSource: 'codex-thread-manager'
+  });
+
+  assert.equal(started.thread.id, 'thread-new');
+  assert.equal(started.thread.turns.length, 0);
+  assert.equal(started.model, 'gpt-fixture');
+  assert.equal(started.serviceTier, 'fast');
+});
+
+test('classifies malformed config and thread start responses as incompatible', async () => {
+  const cases = [
+    {
+      mode: 'malformed-config-read',
+      invoke: (client: AppServerClient) => client.readConversationConfig({ cwd: 'D:\\workspace' }),
+      expectedLog: 'invalid config/read response'
+    },
+    {
+      mode: 'malformed-thread-start',
+      invoke: (client: AppServerClient) => client.startThread({ cwd: 'D:\\workspace' }),
+      expectedLog: 'invalid thread/start response'
+    }
+  ] as const;
+
+  for (const testCase of cases) {
+    const logs: string[] = [];
+    const client = createClient(testCase.mode, logs);
+    try {
+      await assert.rejects(
+        testCase.invoke(client),
+        (error) => error instanceof AppServerError && error.code === 'incompatible-cli'
+      );
+      assert.equal(logs.some((line) => line.includes(testCase.expectedLog)), true);
+    } finally {
+      client.dispose();
+    }
+  }
+});
+
 test('classifies malformed conversation history as an incompatible CLI boundary', async (t) => {
   const logs: string[] = [];
   const client = createClient('malformed-thread-read', logs);

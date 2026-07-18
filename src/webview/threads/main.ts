@@ -122,6 +122,12 @@ app.addEventListener('click', (event) => {
     vscode.postMessage({ type: 'threads/open', threadId });
     return;
   }
+  if (action === 'new') {
+    pendingThreadCardFocus = undefined;
+    pendingThreadGroupFocusId = undefined;
+    vscode.postMessage({ type: 'threads/new' });
+    return;
+  }
   if (action === 'stop') {
     stopConversation();
     return;
@@ -270,6 +276,27 @@ function handleHostMessage(message: ThreadsHostToWebviewMessage): void {
     case 'threads/conversationState':
       queueConversationState(message.state);
       return;
+    case 'threads/newConversationLoaded':
+      showConversationShell(
+        message.state.model.threadId,
+        message.state.model.title,
+        false,
+        message.state.sessionId
+      );
+      queueConversationState(message.state);
+      return;
+    case 'threads/conversationCreated':
+      if (!isActiveConversation(message.state.sessionId, message.previousThreadId)) {
+        return;
+      }
+      conversationThreadId = message.state.model.threadId;
+      persistState({
+        screen: 'conversation',
+        selectedThreadId: message.state.model.threadId
+      });
+      if (conversationTarget) conversationTarget.title.textContent = message.state.model.title;
+      queueConversationState(message.state);
+      return;
     case 'threads/conversationError':
       if (!isActiveConversation(message.sessionId, message.threadId)) {
         return;
@@ -318,6 +345,17 @@ function renderList(state: Extract<ThreadsHostToWebviewMessage, { type: 'threads
     app.append(empty);
     return;
   }
+
+  const listToolbar = document.createElement('div');
+  listToolbar.className = 'thread-list-toolbar';
+  const newConversation = actionButton('＋ New conversation', 'new');
+  newConversation.className = 'new-conversation';
+  newConversation.disabled = state.status.kind !== 'ready';
+  newConversation.title = state.status.kind === 'ready'
+    ? 'Start a new conversation in this workspace'
+    : 'Connect to Codex before starting a conversation';
+  listToolbar.append(newConversation);
+  app.append(listToolbar);
 
   appendGroup('pinned', 'Pinned', state.snapshot.pinned);
   appendGroup('active', 'Recent threads', state.snapshot.active, 'loadMoreActive');
@@ -1402,7 +1440,7 @@ function requireConversationTarget(): ConversationRenderTarget {
 
 function actionButton(
   label: string,
-  action: ThreadListAction | 'open' | 'back' | 'reload' | 'send' | 'stop' | 'add' |
+  action: ThreadListAction | 'new' | 'open' | 'back' | 'reload' | 'send' | 'stop' | 'add' |
     'interaction-accept' | 'interaction-session' | 'interaction-decline' | 'interaction-cancel',
   threadId?: string
 ): HTMLButtonElement {

@@ -7,6 +7,12 @@ import {
   type ConversationNotification
 } from '../codex/protocol/guards';
 import type { ThreadPageState, ThreadRepositorySnapshot } from '../codex/threadRepository';
+import type { Thread } from '../codex/protocol/generated/v2/Thread';
+import type { Model } from '../codex/protocol/generated/v2/Model';
+import type { AskForApproval } from '../codex/protocol/generated/v2/AskForApproval';
+import type { ThreadStartParams } from '../codex/protocol/generated/v2/ThreadStartParams';
+import type { ThreadStartResponse } from '../codex/protocol/generated/v2/ThreadStartResponse';
+import type { ConversationConfigDefaults } from '../codex/protocol/guards';
 import { asError } from '../common/errors';
 import { conversationErrorMessage } from '../conversation/conversationPanelManager';
 import {
@@ -17,6 +23,12 @@ import {
 } from '../conversation/conversationInteraction';
 import {
   ConversationSession,
+  conversationRuntimeModelValue,
+  createConversationRuntimeSettings,
+  isConversationRuntimeUpdateValid,
+  loadConversationModelCatalog,
+  visibleConversationModels,
+  type ConversationRuntimeSettings,
   type ConversationSessionClient,
   type ConversationSessionSnapshot
 } from '../conversation/conversationSession';
@@ -50,6 +62,9 @@ export interface ThreadListWebviewLogger {
 export interface ThreadListWebviewProviderOptions {
   readonly extensionUri: vscode.Uri;
   readonly conversationClient: ConversationSessionClient;
+  readonly startThread?: (params: ThreadStartParams) => Promise<ThreadStartResponse>;
+  readonly readConversationConfig?: (cwd: string) => Promise<ConversationConfigDefaults>;
+  readonly onConversationCreated?: (thread: Thread) => void;
   readonly respondToServerRequest?: (id: AppServerRequest['id'], result: unknown) => Promise<boolean>;
   readonly logger: ThreadListWebviewLogger;
 }
@@ -71,6 +86,22 @@ interface PendingConversationPost {
   readonly snapshot: ConversationSessionSnapshot;
 }
 
+interface NewConversationDraft {
+  readonly generation: number;
+  readonly sessionId: string;
+  readonly draftId: string;
+  readonly cwd: string;
+  runtime: ConversationRuntimeSettings;
+  models: readonly Model[];
+  approvalPolicy: AskForApproval;
+  runtimeLoadVersion: number;
+  createPending: boolean;
+  createdThread: Thread | undefined;
+  readonly notifications: ConversationNotification[];
+  overflowed: boolean;
+  malformed: boolean;
+}
+
 const MAX_BUFFERED_CONVERSATION_NOTIFICATIONS = 512;
 const CONVERSATION_POST_INTERVAL_MS = 16;
 
@@ -85,8 +116,10 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
   private status: ConnectionStatus = { kind: 'idle' };
   private activeThread: { readonly id: string; readonly title: string } | undefined;
   private readonly conversationSessions = new Map<string, ConversationSession>();
+  private readonly pendingNewConversations = new Set<NewConversationDraft>();
   private readonly interactions = new Map<string, ParsedConversationInteraction>();
   private conversationSession: ConversationSession | undefined;
+  private newConversationDraft: NewConversationDraft | undefined;
   private conversationSessionId: string | undefined;
   private conversationSubscription: { dispose(): void } | undefined;
   private pendingConversationLoad: PendingConversationLoad | undefined;
@@ -142,11 +175,16 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
           case 'threads/open':
             this.openConversation(message.threadId);
             return;
+          case 'threads/new':
+            this.openNewConversation();
+            return;
           case 'threads/back':
             this.showList();
             return;
           case 'threads/reload':
-            if (this.activeThread) {
+            if (this.newConversationDraft) {
+              this.loadNewConversationRuntime(this.newConversationDraft);
+            } else if (this.activeThread) {
               this.reloadConversation();
             }
             return;
@@ -205,7 +243,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
         session.updateTitle(reference.title);
       }
     }
-    if (!this.resolvePendingRestore() && !this.activeThread) {
+    if (!this.resolvePendingRestore() && !this.activeThread && !this.newConversationDraft) {
       this.postListState();
     }
   }
@@ -217,6 +255,14 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
       for (const session of this.conversationSessions.values()) {
         session.markDisconnected();
       }
+      const draft = this.newConversationDraft;
+      if (draft && !draft.createPending) {
+        this.postNewConversationState(
+          draft,
+          { kind: 'unavailable', message: 'Reconnect before creating the conversation.' },
+          'The App Server connection was lost.'
+        );
+      }
     }
     if (this.conversationSession) {
       if (
@@ -226,7 +272,15 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
         this.resyncConversation();
       }
     }
-    if (!this.resolvePendingRestore() && !this.activeThread) {
+    if (
+      status.kind === 'ready' &&
+      previousStatus.kind === 'error' &&
+      this.newConversationDraft &&
+      !this.newConversationDraft.createPending
+    ) {
+      this.loadNewConversationRuntime(this.newConversationDraft);
+    }
+    if (!this.resolvePendingRestore() && !this.activeThread && !this.newConversationDraft) {
       this.postListState();
     }
   }
@@ -264,6 +318,17 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
         } else {
           pending.overflowed = true;
         }
+        return;
+      }
+      const draft = [...this.pendingNewConversations]
+        .find((candidate) => candidate.createdThread?.id === parsed.params.threadId) ??
+        this.newConversationDraft;
+      if (draft?.createdThread?.id === parsed.params.threadId) {
+        if (draft.notifications.length < MAX_BUFFERED_CONVERSATION_NOTIFICATIONS) {
+          draft.notifications.push(parsed);
+        } else {
+          draft.overflowed = true;
+        }
       }
     } catch (error) {
       this.options.logger.appendLine(
@@ -274,6 +339,9 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
         if (this.pendingConversationLoad?.threadId === threadId) {
           this.pendingConversationLoad.malformed = true;
         }
+        const draft = [...this.pendingNewConversations]
+          .find((candidate) => candidate.createdThread?.id === threadId);
+        if (draft) draft.malformed = true;
       }
     }
   }
@@ -293,8 +361,19 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
 
   public markConversationDisconnected(): void {
     this.interactions.clear();
+    for (const draft of this.pendingNewConversations) {
+      draft.malformed = true;
+    }
     for (const session of this.conversationSessions.values()) {
       session.markDisconnected();
+    }
+    const draft = this.newConversationDraft;
+    if (draft && !draft.createPending) {
+      this.postNewConversationState(
+        draft,
+        { kind: 'unavailable', message: 'Reconnect before creating the conversation.' },
+        'The App Server connection was lost.'
+      );
     }
     this.postCurrentConversationState();
   }
@@ -306,6 +385,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     this.activeThread = undefined;
     this.pendingRestoreThreadId = undefined;
     this.interactions.clear();
+    this.pendingNewConversations.clear();
     this.snapshot = {
       pinned: { threads: [], nextCursor: null, loaded: true },
       active: { threads: [], nextCursor: null, loaded: false },
@@ -323,6 +403,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     this.activeThread = undefined;
     this.pendingRestoreThreadId = undefined;
     this.interactions.clear();
+    this.pendingNewConversations.clear();
     this.viewReady = false;
     this.view = undefined;
     this.disposeViewListeners();
@@ -443,11 +524,111 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     );
   }
 
+  private openNewConversation(): void {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (
+      this.disposed ||
+      !this.view ||
+      !workspace ||
+      this.status.kind !== 'ready' ||
+      !this.options.startThread ||
+      !this.options.readConversationConfig
+    ) {
+      this.options.logger.appendLine('[threads] Ignored an unavailable new conversation request.');
+      return;
+    }
+
+    this.clearConversationSession();
+    const generation = ++this.generation;
+    const draft: NewConversationDraft = {
+      generation,
+      sessionId: randomUUID(),
+      draftId: randomUUID(),
+      cwd: workspace.uri.fsPath,
+      runtime: loadingRuntimeSettings(),
+      models: [],
+      approvalPolicy: 'on-request',
+      runtimeLoadVersion: 0,
+      createPending: false,
+      createdThread: undefined,
+      notifications: [],
+      overflowed: false,
+      malformed: false
+    };
+    this.newConversationDraft = draft;
+    this.activeThread = undefined;
+    this.conversationSessionId = draft.sessionId;
+    this.post({
+      type: 'threads/newConversationLoaded',
+      state: this.toNewConversationScreenState(draft, { kind: 'resuming' })
+    });
+    this.loadNewConversationRuntime(draft);
+  }
+
+  private loadNewConversationRuntime(draft: NewConversationDraft): void {
+    if (!this.options.readConversationConfig || !this.isCurrentDraft(draft) || draft.createPending) {
+      return;
+    }
+    const loadVersion = ++draft.runtimeLoadVersion;
+    draft.runtime = { ...draft.runtime, status: 'loading', message: null };
+    this.postNewConversationState(draft, { kind: 'resuming' });
+    void Promise.all([
+      loadConversationModelCatalog(this.options.conversationClient),
+      this.options.readConversationConfig(draft.cwd)
+    ]).then(
+      ([catalog, defaults]) => {
+        if (!this.isCurrentDraft(draft) || loadVersion !== draft.runtimeLoadVersion) return;
+        const models = visibleConversationModels(catalog);
+        const selectedModel = defaults.model ??
+          models.find((model) => model.isDefault)?.id ??
+          models[0]?.id;
+        if (!selectedModel) {
+          draft.runtime = {
+            ...draft.runtime,
+            status: 'unavailable',
+            message: 'No conversation models are available.'
+          };
+          this.postNewConversationState(
+            draft,
+            { kind: 'unavailable', message: 'No conversation models are available.' },
+            'No conversation models are available.'
+          );
+          return;
+        }
+        draft.models = models;
+        draft.approvalPolicy = defaults.approvalPolicy ?? 'on-request';
+        draft.runtime = createConversationRuntimeSettings(
+          models,
+          selectedModel,
+          defaults.reasoningEffort,
+          defaults.serviceTier,
+          defaults.sandbox ?? 'read-only',
+          draft.approvalPolicy
+        );
+        this.postNewConversationState(draft, { kind: 'idle' });
+      },
+      () => {
+        if (!this.isCurrentDraft(draft) || loadVersion !== draft.runtimeLoadVersion) return;
+        draft.runtime = {
+          ...draft.runtime,
+          status: 'unavailable',
+          message: 'New conversation settings could not be loaded.'
+        };
+        this.postNewConversationState(
+          draft,
+          { kind: 'unavailable', message: 'Reload the new conversation settings and try again.' },
+          'New conversation settings could not be loaded.'
+        );
+      }
+    );
+  }
+
   private attachConversationSession(
     session: ConversationSession,
     generation: number,
     sessionId: string,
-    reference: { readonly id: string; readonly title: string }
+    reference: { readonly id: string; readonly title: string },
+    previousThreadId?: string
   ): void {
     let initialSnapshot: ConversationSessionSnapshot | undefined;
     let loaded = false;
@@ -473,10 +654,17 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     const snapshot = initialSnapshot ?? session.snapshot();
     this.activeThread = { id: snapshot.model.threadId, title: snapshot.model.title };
     loaded = true;
-    this.post({
-      type: 'threads/conversationLoaded',
-      state: this.toConversationScreenState(sessionId, snapshot)
-    });
+    const state = this.toConversationScreenState(sessionId, snapshot);
+    this.post(previousThreadId
+      ? {
+        type: 'threads/conversationCreated',
+        previousThreadId,
+        state
+      }
+      : {
+        type: 'threads/conversationLoaded',
+        state
+      });
     this.options.logger.appendLine(
       `[threads] Loaded ${snapshot.model.turns.length} turn(s) for sidebar thread ${snapshot.model.threadId}.`
     );
@@ -517,6 +705,16 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     requestId: string,
     text?: string
   ): void {
+    const draft = this.newConversationDraft;
+    if (
+      operation === 'send' &&
+      draft &&
+      draft.sessionId === sessionId &&
+      draft.draftId === threadId
+    ) {
+      this.createNewConversation(draft, requestId, text ?? '');
+      return;
+    }
     const session = this.conversationSession;
     if (!session || !this.isCurrentSession(sessionId, threadId)) {
       this.options.logger.appendLine(
@@ -562,6 +760,30 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     threadId: string,
     settings: Parameters<ConversationSession['updateRuntimeSettings']>[0]
   ): void {
+    const draft = this.newConversationDraft;
+    if (draft?.sessionId === sessionId && draft.draftId === threadId) {
+      if (
+        draft.createPending ||
+        draft.runtime.status !== 'ready' ||
+        !isConversationRuntimeUpdateValid(draft.models, draft.runtime.approvalPolicy, settings)
+      ) {
+        this.options.logger.appendLine('[threads] Ignored invalid new conversation settings.');
+        return;
+      }
+      if (settings.approvalPolicy !== 'custom') {
+        draft.approvalPolicy = settings.approvalPolicy;
+      }
+      draft.runtime = createConversationRuntimeSettings(
+        draft.models,
+        settings.model,
+        settings.effort,
+        settings.serviceTier,
+        settings.sandbox,
+        settings.approvalPolicy
+      );
+      this.postNewConversationState(draft, { kind: 'idle' });
+      return;
+    }
     const session = this.conversationSession;
     if (!session || !this.isCurrentSession(sessionId, threadId)) {
       this.options.logger.appendLine(
@@ -574,6 +796,130 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
         `[threads] Ignored invalid settings request for sidebar thread ${threadId}.`
       );
     }
+  }
+
+  private createNewConversation(
+    draft: NewConversationDraft,
+    requestId: string,
+    text: string
+  ): void {
+    if (
+      !this.options.startThread ||
+      !text.trim() ||
+      !this.isCurrentDraft(draft) ||
+      draft.createPending ||
+      draft.runtime.status !== 'ready' ||
+      !draft.runtime.model
+    ) {
+      return;
+    }
+    draft.createPending = true;
+    this.pendingNewConversations.add(draft);
+    this.postNewConversationState(draft, { kind: 'starting' });
+    const model = conversationRuntimeModelValue(draft.models, draft.runtime.model);
+    void this.options.startThread({
+      model,
+      serviceTier: draft.runtime.serviceTier,
+      cwd: draft.cwd,
+      approvalPolicy: draft.approvalPolicy,
+      sandbox: draft.runtime.sandbox,
+      ephemeral: false,
+      sessionStartSource: 'startup',
+      threadSource: 'codex-thread-manager'
+    }).then(async (started) => {
+      draft.createdThread = started.thread;
+      if (this.isDraftWorkspaceCurrent(draft)) {
+        this.options.onConversationCreated?.(started.thread);
+      }
+      try {
+        const response = await this.options.conversationClient.startTurn({
+          threadId: started.thread.id,
+          clientUserMessageId: randomUUID(),
+          input: [{ type: 'text', text, text_elements: [] }],
+          model,
+          serviceTier: draft.runtime.serviceTier,
+          effort: draft.runtime.effort,
+          approvalPolicy: draft.approvalPolicy
+        });
+        this.finishNewConversation(
+          draft,
+          requestId,
+          started,
+          { ...started.thread, turns: [response.turn] },
+          true
+        );
+      } catch {
+        this.finishNewConversation(draft, requestId, started, started.thread, false);
+      }
+    }, () => {
+      this.pendingNewConversations.delete(draft);
+      if (!this.isCurrentDraft(draft)) return;
+      draft.createPending = false;
+      this.postNewConversationState(
+        draft,
+        { kind: 'idle' },
+        'The conversation could not be created. Check the connection and try again.'
+      );
+      this.post({
+        type: 'threads/conversationOperationResult',
+        sessionId: draft.sessionId,
+        threadId: draft.draftId,
+        requestId,
+        operation: 'send',
+        outcome: 'rejected',
+        message: 'The conversation could not be created. Check the connection and try again.'
+      });
+    });
+  }
+
+  private finishNewConversation(
+    draft: NewConversationDraft,
+    requestId: string,
+    started: ThreadStartResponse,
+    thread: Thread,
+    turnStarted: boolean
+  ): void {
+    const session = new ConversationSession(this.options.conversationClient, thread);
+    session.initializeRuntimeSettings(
+      draft.models,
+      started.model,
+      started.reasoningEffort,
+      started.serviceTier,
+      draft.runtime.sandbox,
+      started.approvalPolicy
+    );
+    for (const notification of draft.notifications) session.applyNotification(notification);
+    if (draft.overflowed || draft.malformed) session.markDisconnected();
+    this.pendingNewConversations.delete(draft);
+    if (this.disposed || !this.isDraftWorkspaceCurrent(draft)) {
+      session.dispose();
+      return;
+    }
+    this.conversationSessions.set(thread.id, session);
+    if (!this.isCurrentDraft(draft)) return;
+
+    this.newConversationDraft = undefined;
+    this.activeThread = { id: thread.id, title: conversationTitle(thread) };
+    this.attachConversationSession(
+      session,
+      draft.generation,
+      draft.sessionId,
+      this.activeThread,
+      draft.draftId
+    );
+    this.post({
+      type: 'threads/conversationOperationResult',
+      sessionId: draft.sessionId,
+      threadId: thread.id,
+      requestId,
+      operation: 'send',
+      ...(turnStarted
+        ? { outcome: 'accepted' as const }
+        : {
+          outcome: 'rejected' as const,
+          message: 'The conversation was created, but its first message was not sent. Try sending it again.'
+        })
+    });
   }
 
   private respondToInteraction(
@@ -674,9 +1020,25 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
 
   private isCurrentSession(sessionId: string, threadId: string): boolean {
     return (
-      this.conversationSessionId === sessionId &&
-      this.activeThread?.id === threadId
+      this.conversationSessionId === sessionId && (
+        this.activeThread?.id === threadId ||
+        this.newConversationDraft?.draftId === threadId
+      )
     );
+  }
+
+  private isCurrentDraft(draft: NewConversationDraft): boolean {
+    return (
+      !this.disposed &&
+      Boolean(this.view) &&
+      this.newConversationDraft === draft &&
+      this.generation === draft.generation &&
+      this.conversationSessionId === draft.sessionId
+    );
+  }
+
+  private isDraftWorkspaceCurrent(draft: NewConversationDraft): boolean {
+    return Boolean(vscode.workspace.workspaceFolders?.some((folder) => folder.uri.fsPath === draft.cwd));
   }
 
   private clearConversationSession(): void {
@@ -684,6 +1046,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     this.conversationSubscription = undefined;
     this.conversationSession = undefined;
     this.conversationSessionId = undefined;
+    this.newConversationDraft = undefined;
     this.pendingConversationLoad = undefined;
     this.pendingConversationPost = undefined;
     if (this.conversationPostTimer !== undefined) {
@@ -728,6 +1091,42 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     const sessionId = this.conversationSessionId;
     if (!session || !sessionId) return;
     this.post({ type: 'threads/conversationState', state: this.toConversationScreenState(sessionId, session.snapshot()) });
+  }
+
+  private postNewConversationState(
+    draft: NewConversationDraft,
+    execution: ConversationExecutionViewModel,
+    notice?: string
+  ): void {
+    if (!this.isCurrentDraft(draft)) return;
+    this.post({
+      type: 'threads/conversationState',
+      state: this.toNewConversationScreenState(draft, execution, notice)
+    });
+  }
+
+  private toNewConversationScreenState(
+    draft: NewConversationDraft,
+    execution: ConversationExecutionViewModel,
+    notice?: string
+  ): ConversationScreenState {
+    return {
+      sessionId: draft.sessionId,
+      revision: ++this.conversationViewRevision,
+      model: {
+        threadId: draft.draftId,
+        title: 'New conversation',
+        cwd: draft.cwd,
+        status: 'Draft',
+        updatedAt: Date.now(),
+        isPartialHistory: false,
+        turns: []
+      },
+      execution,
+      runtime: draft.runtime,
+      interactions: [],
+      ...(notice ? { notice } : {})
+    };
   }
 
   private toConversationScreenState(sessionId: string, snapshot: ConversationSessionSnapshot): ConversationScreenState {
@@ -827,6 +1226,28 @@ function toListPage(page: ThreadPageState): ThreadListPageViewModel {
     nextCursor: page.nextCursor,
     loaded: page.loaded
   };
+}
+
+function loadingRuntimeSettings(): ConversationRuntimeSettings {
+  return {
+    status: 'loading',
+    models: [],
+    model: null,
+    efforts: [],
+    effort: null,
+    defaultEffort: null,
+    serviceTiers: [],
+    serviceTier: null,
+    defaultServiceTier: null,
+    sandbox: 'read-only',
+    approvalPolicy: 'on-request',
+    message: null
+  };
+}
+
+function conversationTitle(thread: Thread): string {
+  const title = thread.name?.trim() || thread.preview.split(/\r?\n/u, 1)[0]?.trim();
+  return title || 'New conversation';
 }
 
 function toConversationScreenState(

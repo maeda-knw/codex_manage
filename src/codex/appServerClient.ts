@@ -23,7 +23,10 @@ import type { ThreadReadResponse } from './protocol/generated/v2/ThreadReadRespo
 import type { ThreadResumeParams } from './protocol/generated/v2/ThreadResumeParams';
 import type { ThreadResumeResponse } from './protocol/generated/v2/ThreadResumeResponse';
 import type { ThreadSetNameParams } from './protocol/generated/v2/ThreadSetNameParams';
+import type { ThreadStartParams } from './protocol/generated/v2/ThreadStartParams';
+import type { ThreadStartResponse } from './protocol/generated/v2/ThreadStartResponse';
 import type { ThreadUnarchiveParams } from './protocol/generated/v2/ThreadUnarchiveParams';
+import type { ConfigReadParams } from './protocol/generated/v2/ConfigReadParams';
 import type { TurnInterruptParams } from './protocol/generated/v2/TurnInterruptParams';
 import type { TurnInterruptResponse } from './protocol/generated/v2/TurnInterruptResponse';
 import type { TurnStartParams } from './protocol/generated/v2/TurnStartParams';
@@ -33,12 +36,15 @@ import {
   isJsonObject,
   isRequestId,
   parseInitializeResponse,
+  parseConversationConfigDefaults,
   parseModelListResponse,
   parseThreadListResponse,
   parseThreadReadResponse,
   parseThreadResumeResponse,
+  parseThreadStartResponse,
   parseTurnInterruptResponse,
-  parseTurnStartResponse
+  parseTurnStartResponse,
+  type ConversationConfigDefaults
 } from './protocol/guards';
 import type { ModelListParams } from './protocol/generated/v2/ModelListParams';
 import type { ModelListResponse } from './protocol/generated/v2/ModelListResponse';
@@ -232,6 +238,26 @@ export class AppServerClient {
       return parseThreadResumeResponse(result, params.threadId);
     } catch (error) {
       throw this.classifyRequiredProtocolError(error, 'thread/resume failed.');
+    }
+  }
+
+  public async startThread(params: ThreadStartParams): Promise<ThreadStartResponse> {
+    await this.connect();
+    try {
+      const result = await this.sendRequest((id) => ({ method: 'thread/start', id, params }));
+      return parseThreadStartResponse(result);
+    } catch (error) {
+      throw this.classifyRequiredProtocolError(error, 'thread/start failed.');
+    }
+  }
+
+  public async readConversationConfig(params: ConfigReadParams): Promise<ConversationConfigDefaults> {
+    await this.connect();
+    try {
+      const result = await this.sendRequest((id) => ({ method: 'config/read', id, params }));
+      return parseConversationConfigDefaults(result);
+    } catch (error) {
+      throw this.classifyRequiredProtocolError(error, 'config/read failed.');
     }
   }
 

@@ -3,6 +3,7 @@ import type { AppServerClient } from './appServerClient';
 import type { Thread } from './protocol/generated/v2/Thread';
 import type { ThreadListParams } from './protocol/generated/v2/ThreadListParams';
 import type { ThreadStatus } from './protocol/generated/v2/ThreadStatus';
+import { isJsonObject, isThread } from './protocol/guards';
 
 export type ThreadGroupKind = 'pinned' | 'recent' | 'archive';
 
@@ -145,7 +146,20 @@ export class ThreadRepository {
     });
   }
 
+  public upsertThread(thread: Thread): void {
+    const display = toDisplayModel(thread, false);
+    this.archivedThreads = this.archivedThreads.filter((candidate) => candidate.id !== thread.id);
+    this.activeThreads = applyPinState([
+      display,
+      ...this.activeThreads.filter((candidate) => candidate.id !== thread.id)
+    ], this.pinnedThreadIds, false);
+  }
+
   public handleThreadNotification(method: string, params: unknown): boolean {
+    if (method === 'thread/started' && isJsonObject(params) && isThread(params.thread)) {
+      this.upsertThread(params.thread);
+      return true;
+    }
     if (!isThreadIdParams(params)) {
       return false;
     }

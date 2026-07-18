@@ -3,6 +3,8 @@ import test from 'node:test';
 import * as vscode from 'vscode';
 import type { Thread } from '../../src/codex/protocol/generated/v2/Thread';
 import type { ThreadResumeResponse } from '../../src/codex/protocol/generated/v2/ThreadResumeResponse';
+import type { ThreadStartResponse } from '../../src/codex/protocol/generated/v2/ThreadStartResponse';
+import type { Model } from '../../src/codex/protocol/generated/v2/Model';
 import type { Turn } from '../../src/codex/protocol/generated/v2/Turn';
 import type { ThreadDisplayModel, ThreadRepositorySnapshot } from '../../src/codex/threadRepository';
 import type { ConversationSessionClient } from '../../src/conversation/conversationSession';
@@ -158,6 +160,31 @@ function resumeResponse(thread: Thread): ThreadResumeResponse {
   };
 }
 
+function startResponse(thread: Thread): ThreadStartResponse {
+  return resumeResponse(thread);
+}
+
+function runtimeModel(): Model {
+  return {
+    id: 'gpt-fixture',
+    model: 'gpt-fixture',
+    upgrade: null,
+    upgradeInfo: null,
+    availabilityNux: null,
+    displayName: 'GPT Fixture',
+    description: 'Fixture model',
+    hidden: false,
+    supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: 'Balanced' }],
+    defaultReasoningEffort: 'medium',
+    inputModalities: ['text'],
+    supportsPersonality: false,
+    additionalSpeedTiers: ['fast'],
+    serviceTiers: [{ id: 'priority', name: 'Fast', description: 'Lower latency' }],
+    defaultServiceTier: null,
+    isDefault: true
+  };
+}
+
 test('posts a primitive-only list model and a secure Webview shell after ready', (t) => {
   setWorkspace();
   const logs: string[] = [];
@@ -189,6 +216,239 @@ test('posts a primitive-only list model and a secure Webview shell after ready',
   assert.match(serialized, /Thread 1/u);
   assert.equal(serialized.includes('private tooltip'), false);
   assert.equal(serialized.includes('private-workspace'), false);
+});
+
+test('creates one conversation from the first message and transitions to its running turn', async (t) => {
+  setWorkspace();
+  const threadStarts: unknown[] = [];
+  const turnStarts: unknown[] = [];
+  const created: string[] = [];
+  const client: ConversationSessionClient = {
+    ...fakeConversationClient(async (threadId) => createThread({ id: threadId })),
+    resumeThread: async () => {
+      throw new Error('New conversations must not resume immediately after thread/start.');
+    },
+    listModels: async () => ({ data: [runtimeModel()], nextCursor: null }),
+    startTurn: async (params) => {
+      turnStarts.push(params);
+      return {
+        turn: createTurn({
+          id: 'turn-created',
+          status: 'inProgress',
+          completedAt: null,
+          durationMs: null,
+          items: []
+        })
+      };
+    }
+  };
+  const provider = new ThreadListWebviewProvider({
+    extensionUri: vscode.Uri.file('/extension'),
+    conversationClient: client,
+    startThread: async (params) => {
+      threadStarts.push(params);
+      return startResponse(createThread({ id: 'thread-created', name: null, preview: '' }));
+    },
+    readConversationConfig: async () => ({
+      model: 'gpt-fixture',
+      reasoningEffort: null,
+      serviceTier: null,
+      sandbox: 'workspace-write',
+      approvalPolicy: 'on-request'
+    }),
+    onConversationCreated: (thread) => created.push(thread.id),
+    logger: { appendLine: () => undefined }
+  });
+  t.after(() => provider.dispose());
+  provider.setSnapshot(snapshot());
+  provider.setConnectionStatus({ kind: 'ready' });
+  const view = new FakeWebviewView();
+  resolveProvider(provider, view);
+  view.webview.fire({ type: 'threads/ready' });
+  view.webview.fire({ type: 'threads/new' });
+  await flushPromises();
+
+  const readyState = [...view.webview.postedMessages].reverse().find(
+    (message) => (message as { type?: unknown; state?: { runtime?: { status?: unknown } } }).state?.runtime?.status === 'ready'
+  ) as { state: { sessionId: string; model: { threadId: string } } } | undefined;
+  assert.ok(readyState);
+  const sessionId = readyState.state.sessionId;
+  const draftId = readyState.state.model.threadId;
+  view.webview.fire({
+    type: 'threads/conversation/settings',
+    sessionId,
+    threadId: draftId,
+    settings: {
+      model: 'gpt-fixture',
+      effort: 'medium',
+      serviceTier: 'priority',
+      sandbox: 'read-only',
+      approvalPolicy: 'never'
+    }
+  });
+  view.webview.fire({
+    type: 'threads/conversation/send',
+    sessionId,
+    threadId: draftId,
+    requestId: 'create-1',
+    text: 'Start this conversation'
+  });
+  view.webview.fire({
+    type: 'threads/conversation/send',
+    sessionId,
+    threadId: draftId,
+    requestId: 'create-duplicate',
+    text: 'Duplicate'
+  });
+  await flushPromises();
+
+  assert.equal(threadStarts.length, 1);
+  assert.deepEqual(threadStarts[0], {
+    model: 'gpt-fixture',
+    serviceTier: 'priority',
+    cwd: 'D:\\workspace',
+    approvalPolicy: 'never',
+    sandbox: 'read-only',
+    ephemeral: false,
+    sessionStartSource: 'startup',
+    threadSource: 'codex-thread-manager'
+  });
+  assert.equal((turnStarts[0] as { threadId?: unknown }).threadId, 'thread-created');
+  assert.equal((turnStarts[0] as { effort?: unknown }).effort, 'medium');
+  assert.deepEqual(created, ['thread-created']);
+  const transition = view.webview.postedMessages.find(
+    (message) => (message as { type?: unknown }).type === 'threads/conversationCreated'
+  ) as {
+    previousThreadId: string;
+    state: { model: { threadId: string }; runtime: { status: string; model: string | null } };
+  } | undefined;
+  assert.equal(transition?.previousThreadId, draftId);
+  assert.equal(transition?.state.model.threadId, 'thread-created');
+  assert.equal(transition?.state.runtime.status, 'ready');
+  assert.equal(transition?.state.runtime.model, 'gpt-fixture');
+  const result = view.webview.postedMessages.find(
+    (message) => (message as { requestId?: unknown }).requestId === 'create-1'
+  ) as { outcome?: unknown; threadId?: unknown } | undefined;
+  assert.equal(result?.outcome, 'accepted');
+  assert.equal(result?.threadId, 'thread-created');
+});
+
+test('keeps a new-conversation draft after creation failure and isolates a late success after Back', async (t) => {
+  setWorkspace();
+  const start = deferred<ThreadStartResponse>();
+  let turnStarts = 0;
+  const client: ConversationSessionClient = {
+    ...fakeConversationClient(async (threadId) => createThread({ id: threadId })),
+    listModels: async () => ({ data: [runtimeModel()], nextCursor: null }),
+    startTurn: async () => {
+      turnStarts += 1;
+      return { turn: createTurn({ id: 'late-turn', status: 'inProgress', completedAt: null }) };
+    }
+  };
+  let rejectCreation = true;
+  const provider = new ThreadListWebviewProvider({
+    extensionUri: vscode.Uri.file('/extension'),
+    conversationClient: client,
+    startThread: async () => {
+      if (rejectCreation) throw new Error('private failure');
+      return start.promise;
+    },
+    readConversationConfig: async () => ({
+      model: 'gpt-fixture', reasoningEffort: null, serviceTier: null,
+      sandbox: null, approvalPolicy: null
+    }),
+    logger: { appendLine: () => undefined }
+  });
+  t.after(() => provider.dispose());
+  provider.setSnapshot(snapshot());
+  provider.setConnectionStatus({ kind: 'ready' });
+  const view = new FakeWebviewView();
+  resolveProvider(provider, view);
+  view.webview.fire({ type: 'threads/ready' });
+  view.webview.fire({ type: 'threads/new' });
+  await flushPromises();
+  const ready = [...view.webview.postedMessages].reverse().find(
+    (message) => (message as { state?: { runtime?: { status?: unknown } } }).state?.runtime?.status === 'ready'
+  ) as { state: { sessionId: string; model: { threadId: string } } };
+
+  view.webview.fire({
+    type: 'threads/conversation/send',
+    sessionId: ready.state.sessionId,
+    threadId: ready.state.model.threadId,
+    requestId: 'failed-create',
+    text: 'Keep this draft'
+  });
+  await flushPromises();
+  const failure = view.webview.postedMessages.find(
+    (message) => (message as { requestId?: unknown }).requestId === 'failed-create'
+  ) as { outcome?: unknown; threadId?: unknown; message?: unknown } | undefined;
+  assert.equal(failure?.outcome, 'rejected');
+  assert.equal(failure?.threadId, ready.state.model.threadId);
+  assert.equal(String(failure?.message).includes('private failure'), false);
+
+  rejectCreation = false;
+  view.webview.fire({
+    type: 'threads/conversation/send',
+    sessionId: ready.state.sessionId,
+    threadId: ready.state.model.threadId,
+    requestId: 'late-create',
+    text: 'Continue after Back'
+  });
+  view.webview.fire({ type: 'threads/back' });
+  start.resolve(startResponse(createThread({ id: 'late-thread' })));
+  await flushPromises();
+  assert.equal(turnStarts, 1);
+  assert.equal(view.webview.postedMessages.some(
+    (message) => (message as { requestId?: unknown }).requestId === 'late-create'
+  ), false);
+});
+
+test('keeps a new-conversation draft unavailable across disconnect and reloads its runtime after reconnect', async (t) => {
+  setWorkspace();
+  let configReads = 0;
+  const provider = new ThreadListWebviewProvider({
+    extensionUri: vscode.Uri.file('/extension'),
+    conversationClient: {
+      ...fakeConversationClient(async (threadId) => createThread({ id: threadId })),
+      listModels: async () => ({ data: [runtimeModel()], nextCursor: null })
+    },
+    startThread: async () => startResponse(createThread({ id: 'thread-created' })),
+    readConversationConfig: async () => {
+      configReads += 1;
+      return {
+        model: 'gpt-fixture', reasoningEffort: 'medium', serviceTier: null,
+        sandbox: 'workspace-write', approvalPolicy: 'on-request'
+      };
+    },
+    logger: { appendLine: () => undefined }
+  });
+  t.after(() => provider.dispose());
+  provider.setSnapshot(snapshot());
+  provider.setConnectionStatus({ kind: 'ready' });
+  const view = new FakeWebviewView();
+  resolveProvider(provider, view);
+  view.webview.fire({ type: 'threads/ready' });
+  view.webview.fire({ type: 'threads/new' });
+  await flushPromises();
+  assert.equal(configReads, 1);
+
+  provider.setConnectionStatus({ kind: 'error', message: 'Disconnected' });
+  provider.markConversationDisconnected();
+  const unavailable = [...view.webview.postedMessages].reverse().find(
+    (message) => (
+      (message as { type?: unknown }).type === 'threads/conversationState' &&
+      (message as { state?: { execution?: { kind?: unknown } } }).state?.execution?.kind === 'unavailable'
+    )
+  );
+  assert.ok(unavailable);
+
+  provider.setConnectionStatus({ kind: 'ready' });
+  await flushPromises();
+  assert.equal(configReads, 2);
+  const restored = [...view.webview.postedMessages].reverse().find(
+    (message) => (message as { state?: { runtime?: { status?: unknown } } }).state?.runtime?.status === 'ready'
+  );
+  assert.ok(restored);
 });
 
 test('opens history in the sidebar, keeps it during snapshot updates, and returns to the latest list', async (t) => {

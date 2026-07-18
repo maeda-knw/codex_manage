@@ -75,6 +75,12 @@ export function activate(context: vscode.ExtensionContext): void {
       interruptTurn: (params) => (activeClient ?? replaceClient()).interruptTurn(params),
       listModels: (params) => (activeClient ?? replaceClient()).listModels(params)
     },
+    startThread: (params) => (activeClient ?? replaceClient()).startThread(params),
+    readConversationConfig: (cwd) => (activeClient ?? replaceClient()).readConversationConfig({ cwd }),
+    onConversationCreated: (thread) => {
+      repository?.upsertThread(thread);
+      if (repository) provider.setSnapshot(repository.snapshot());
+    },
     respondToServerRequest: (id, result) => (activeClient ?? replaceClient()).respondToServerRequest(id, result),
     logger: output
   });
