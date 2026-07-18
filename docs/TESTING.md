@@ -101,6 +101,7 @@ Record the environment and result for each release candidate. Do not mark Phase 
 - Confirm the Runtime trigger shows the current model as `5.6 Sol` or the matching version/variant, the effective reasoning level without a `Default` marker, and `Fast` only when that speed is effective. `Workspace` must be omitted while `Read only` and `Full access` remain visible, and the trigger text must match the Add/Send font size.
 - Open Runtime settings and confirm its compact trigger does not move, the menu opens above it, and Sol, Terra, and Luna can each be selected when advertised by the App Server, including for a conversation started by the official Codex extension with a custom approval policy.
 - Confirm clicks inside Runtime settings keep it open, an outside click closes it, and Escape closes it while returning keyboard focus to the Runtime trigger.
+- In Runtime settings, select **Ask for approval**, **Approve for me**, and **Full access** in turn. Confirm Advanced shows the matching sandbox, approval policy, and reviewer, and verify the next turn uses that combination. Confirm a non-preset current configuration is shown as **Custom (current)** without being overwritten.
 - In forced-colors/high-contrast mode, confirm thread cards, menus, fields, messages, and focused controls retain visible boundaries and a two-pixel focus indicator.
 - Confirm partial stored history shows a summary notice rather than pretending all work items are present.
 - Configure a missing CLI path and confirm Settings/Retry guidance appears.

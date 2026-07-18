@@ -42,7 +42,8 @@ lines.on('line', (line) => {
             model_reasoning_effort: 'high',
             service_tier: 'fast',
             sandbox_mode: 'workspace-write',
-            approval_policy: 'on-request'
+            approval_policy: 'on-request',
+            approvals_reviewer: 'user'
           }
         }
       });
@@ -53,6 +54,7 @@ lines.on('line', (line) => {
       message.params?.serviceTier !== 'fast' ||
       message.params?.cwd !== 'D:\\workspace' ||
       message.params?.approvalPolicy !== 'on-request' ||
+      message.params?.approvalsReviewer !== 'user' ||
       message.params?.sandbox !== 'workspace-write' ||
       message.params?.ephemeral !== false ||
       message.params?.sessionStartSource !== 'startup' ||

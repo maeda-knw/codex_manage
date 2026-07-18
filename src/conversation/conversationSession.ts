@@ -12,6 +12,7 @@ import type { Model } from '../codex/protocol/generated/v2/Model';
 import type { ModelListParams } from '../codex/protocol/generated/v2/ModelListParams';
 import type { ModelListResponse } from '../codex/protocol/generated/v2/ModelListResponse';
 import type { AskForApproval } from '../codex/protocol/generated/v2/AskForApproval';
+import type { ApprovalsReviewer } from '../codex/protocol/generated/v2/ApprovalsReviewer';
 import type { SandboxMode } from '../codex/protocol/generated/v2/SandboxMode';
 import type { SandboxPolicy } from '../codex/protocol/generated/v2/SandboxPolicy';
 import type { ConversationNotification } from '../codex/protocol/guards';
@@ -39,6 +40,7 @@ export interface ConversationSessionClient {
 }
 
 export type SimpleApprovalPolicy = 'untrusted' | 'on-request' | 'never';
+export type SimpleApprovalsReviewer = 'user' | 'auto_review';
 
 export interface ConversationRuntimeOption {
   readonly value: string;
@@ -58,6 +60,7 @@ export interface ConversationRuntimeSettings {
   readonly defaultServiceTier: string | null;
   readonly sandbox: SandboxMode;
   readonly approvalPolicy: SimpleApprovalPolicy | 'custom';
+  readonly approvalsReviewer: SimpleApprovalsReviewer | 'custom';
   readonly message: string | null;
 }
 
@@ -67,6 +70,7 @@ export interface ConversationRuntimeSettingsUpdate {
   readonly serviceTier: string | null;
   readonly sandbox: SandboxMode;
   readonly approvalPolicy: SimpleApprovalPolicy | 'custom';
+  readonly approvalsReviewer: SimpleApprovalsReviewer | 'custom';
 }
 
 export type ConversationSessionSync = 'ready' | 'stale' | 'error';
@@ -108,6 +112,7 @@ export class ConversationSession {
   private settingsPending = false;
   private modelCatalog: readonly Model[] = [];
   private approvalPolicy: AskForApproval = 'on-request';
+  private approvalsReviewer: ApprovalsReviewer = 'user';
   private runtime: ConversationRuntimeSettings = {
     status: 'loading',
     models: [],
@@ -120,6 +125,7 @@ export class ConversationSession {
     defaultServiceTier: null,
     sandbox: 'workspace-write',
     approvalPolicy: 'on-request',
+    approvalsReviewer: 'user',
     message: null
   };
 
@@ -174,13 +180,15 @@ export class ConversationSession {
       }
       this.modelCatalog = visibleConversationModels(models);
       this.approvalPolicy = resumed.approvalPolicy;
+      this.approvalsReviewer = resumed.approvalsReviewer;
       this.runtime = createConversationRuntimeSettings(
         this.modelCatalog,
         resumed.model,
         resumed.reasoningEffort,
         resumed.serviceTier,
         sandboxModeFromPolicy(resumed.sandbox),
-        resumed.approvalPolicy
+        resumed.approvalPolicy,
+        resumed.approvalsReviewer
       );
       this.publish();
       return true;
@@ -205,18 +213,21 @@ export class ConversationSession {
     effort: string | null,
     serviceTier: string | null,
     sandbox: SandboxMode,
-    approvalPolicy: AskForApproval
+    approvalPolicy: AskForApproval,
+    approvalsReviewer: ApprovalsReviewer
   ): void {
     if (this.disposed) return;
     this.modelCatalog = visibleConversationModels(models);
     this.approvalPolicy = approvalPolicy;
+    this.approvalsReviewer = approvalsReviewer;
     this.runtime = createConversationRuntimeSettings(
       this.modelCatalog,
       model,
       effort,
       serviceTier,
       sandbox,
-      approvalPolicy
+      approvalPolicy,
+      approvalsReviewer
     );
     this.publish();
   }
@@ -225,12 +236,20 @@ export class ConversationSession {
     if (
       this.disposed ||
       this.runtime.status !== 'ready' ||
-      !isConversationRuntimeUpdateValid(this.modelCatalog, this.runtime.approvalPolicy, update)
+      !isConversationRuntimeUpdateValid(
+        this.modelCatalog,
+        this.runtime.approvalPolicy,
+        this.runtime.approvalsReviewer,
+        update
+      )
     ) {
       return false;
     }
     if (update.approvalPolicy !== 'custom') {
       this.approvalPolicy = update.approvalPolicy;
+    }
+    if (update.approvalsReviewer !== 'custom') {
+      this.approvalsReviewer = update.approvalsReviewer;
     }
     this.runtime = createConversationRuntimeSettings(
       this.modelCatalog,
@@ -238,7 +257,8 @@ export class ConversationSession {
       update.effort,
       update.serviceTier,
       update.sandbox,
-      update.approvalPolicy
+      update.approvalPolicy,
+      update.approvalsReviewer
     );
     this.publish();
     return true;
@@ -305,6 +325,7 @@ export class ConversationSession {
           model: conversationRuntimeModelValue(this.modelCatalog, this.runtime.model),
           serviceTier: this.runtime.serviceTier,
           approvalPolicy: this.approvalPolicy,
+          approvalsReviewer: this.approvalsReviewer,
           sandbox: this.runtime.sandbox
         } : {})
       });
@@ -356,7 +377,8 @@ export class ConversationSession {
           model: conversationRuntimeModelValue(this.modelCatalog, this.runtime.model),
           serviceTier: this.runtime.serviceTier,
           effort: this.runtime.effort,
-          approvalPolicy: this.approvalPolicy
+          approvalPolicy: this.approvalPolicy,
+          approvalsReviewer: this.approvalsReviewer
         } : {})
       });
       if (!this.isCurrent(generation)) {
@@ -751,7 +773,8 @@ export function createConversationRuntimeSettings(
   effort: string | null,
   serviceTier: string | null,
   sandbox: SandboxMode,
-  approvalPolicy: AskForApproval | 'custom'
+  approvalPolicy: AskForApproval | 'custom',
+  approvalsReviewer: ApprovalsReviewer | 'custom'
 ): ConversationRuntimeSettings {
   const model = findRuntimeModel(models, selectedModel);
   const modelOptions = models.map((candidate) => ({
@@ -803,6 +826,9 @@ export function createConversationRuntimeSettings(
     defaultServiceTier: model?.defaultServiceTier ?? null,
     sandbox,
     approvalPolicy: typeof approvalPolicy === 'string' ? approvalPolicy : 'custom',
+    approvalsReviewer: approvalsReviewer === 'user' || approvalsReviewer === 'auto_review'
+      ? approvalsReviewer
+      : 'custom',
     message: null
   };
 }
@@ -810,6 +836,7 @@ export function createConversationRuntimeSettings(
 export function isConversationRuntimeUpdateValid(
   models: readonly Model[],
   currentApprovalPolicy: ConversationRuntimeSettings['approvalPolicy'],
+  currentApprovalsReviewer: ConversationRuntimeSettings['approvalsReviewer'],
   update: ConversationRuntimeSettingsUpdate
 ): boolean {
   const model = models.find((candidate) => candidate.id === update.model);
@@ -821,6 +848,11 @@ export function isConversationRuntimeUpdateValid(
     (
       ['untrusted', 'on-request', 'never'].includes(update.approvalPolicy) ||
       update.approvalPolicy === 'custom' && currentApprovalPolicy === 'custom'
+    ) &&
+    (
+      update.approvalsReviewer === 'user' ||
+      update.approvalsReviewer === 'auto_review' ||
+      update.approvalsReviewer === 'custom' && currentApprovalsReviewer === 'custom'
     )
   );
 }

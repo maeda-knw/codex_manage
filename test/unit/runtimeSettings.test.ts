@@ -15,7 +15,8 @@ function runtime(overrides: Partial<ConversationRuntimeSettings> = {}): Conversa
     serviceTier: null,
     defaultServiceTier: null,
     sandbox: 'workspace-write',
-    approvalPolicy: 'custom',
+    approvalPolicy: 'on-request',
+    approvalsReviewer: 'user',
     message: null,
     ...overrides
   };
@@ -36,7 +37,8 @@ test('shows speed only when Fast is effective and maps full access permission', 
     effort: 'high',
     defaultEffort: 'low',
     serviceTier: 'priority',
-    sandbox: 'danger-full-access'
+    sandbox: 'danger-full-access',
+    approvalPolicy: 'never'
   })), '5.6 Terra · High · Fast · Full access');
 
   assert.equal(runtimeSettingsSummary(runtime({
@@ -48,6 +50,12 @@ test('shows speed only when Fast is effective and maps full access permission', 
   assert.equal(runtimeSettingsSummary(runtime({
     defaultServiceTier: 'priority'
   })), '5.6 Sol · Low · Fast');
+});
+
+test('shows delegated approval without implying broader sandbox access', () => {
+  assert.equal(runtimeSettingsSummary(runtime({
+    approvalsReviewer: 'auto_review'
+  })), '5.6 Sol · Low · Approve for me');
 });
 
 test('distinguishes unavailable and unlisted runtime values without blank labels', () => {

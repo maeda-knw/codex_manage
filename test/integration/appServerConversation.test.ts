@@ -75,7 +75,8 @@ test('reads workspace defaults and starts a thread with the selected runtime', a
     reasoningEffort: 'high',
     serviceTier: 'fast',
     sandbox: 'workspace-write',
-    approvalPolicy: 'on-request'
+    approvalPolicy: 'on-request',
+    approvalsReviewer: 'user'
   });
 
   const started = await client.startThread({
@@ -83,6 +84,7 @@ test('reads workspace defaults and starts a thread with the selected runtime', a
     serviceTier: config.serviceTier,
     cwd: 'D:\\workspace',
     approvalPolicy: config.approvalPolicy,
+    approvalsReviewer: config.approvalsReviewer,
     sandbox: config.sandbox,
     ephemeral: false,
     sessionStartSource: 'startup',

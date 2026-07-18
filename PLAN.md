@@ -846,6 +846,9 @@ Phase E は次の原則で進める。
 - Runtime トリガー自体へモデル、推論レベル、Fast 時だけの速度を常時表示するようにした。モデルは `5.6 Sol` のように短縮し、既定値でも `Default` を付けず実効値だけを表示する。通常の `Workspace` 権限は省略し、`Read only`／`Full access` のときだけ表示する。トリガーの文字サイズを Add／Send と揃え、横幅を制限して狭いサイドバーでは省略表示する。
 - Runtime settings はトリガー上部に固定したまま、外側クリックと Escape で閉じ、Escape ではトリガーへフォーカスを戻すようにした。メニュー内の選択操作では閉じず、Add メニューとの同時表示も避けるようにした。
 - runtime state、Webview protocol、短縮モデル名、既定推論、Fast 判定、権限を含む表示サマリーへ単体テストを追加し、既存の App Server 統合テストを含む品質ゲートで回帰がないことを確認した。
+- 権限設定は公式 Codex 拡張と対応する `Ask for approval`、`Approve for me`、`Full access` の3プリセットを主導線にした。各プリセットは sandbox、approval policy、approvals reviewer の組として適用し、`Approve for me` は workspace 境界を維持したまま `auto_review` へ承認判断を委譲する。
+- `Read only`、`Strict`、公式拡張由来の granular policy／guardian reviewer など、3プリセットに一致しない既存設定は `Custom (current)` として保持する。Sandbox、Approvals、Reviewer は Advanced から個別確認・変更でき、Webview は列挙済みの値だけを Extension Host へ送る。
+- 既存会話の `thread/resume` と `turn/start`、新規会話の `thread/start` と最初の `turn/start` のすべてへ approvals reviewer を引き渡し、設定表示だけで実行条件が変わらない不整合を防いだ。
 
 ### 16.4 Phase E.3: 新規スレッド作成
 

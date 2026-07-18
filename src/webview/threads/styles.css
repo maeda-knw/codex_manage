@@ -476,10 +476,27 @@ button.conversation-add,
   background: var(--vscode-dropdown-background);
   border: 1px solid var(--vscode-dropdown-border, var(--vscode-widget-border));
 }
+.conversation-runtime-advanced {
+  margin-top: 7px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.78rem;
+}
+.conversation-runtime-advanced > summary { cursor: pointer; }
+.conversation-runtime-advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+.conversation-runtime-advanced-grid .conversation-runtime-field:first-child { grid-column: auto; }
 .conversation-runtime-hint {
   margin: 5px 0 0;
   color: var(--vscode-descriptionForeground);
   font-size: 0.72rem;
+}
+
+@media (max-width: 360px) {
+  .conversation-runtime-advanced-grid { grid-template-columns: 1fr; }
 }
 
 .conversation-composer-input {

@@ -55,8 +55,10 @@ interface ConversationComposerTarget {
   readonly model: HTMLSelectElement;
   readonly effort: HTMLSelectElement;
   readonly serviceTier: HTMLSelectElement;
+  readonly permissions: HTMLSelectElement;
   readonly sandbox: HTMLSelectElement;
   readonly approvalPolicy: HTMLSelectElement;
+  readonly approvalsReviewer: HTMLSelectElement;
 }
 
 interface PendingConversationSend {
@@ -231,6 +233,9 @@ app.addEventListener('change', (event) => {
   const target = conversationComposerTarget;
   if (!target || !(event.target instanceof HTMLSelectElement) || !target.settings.contains(event.target)) {
     return;
+  }
+  if (event.target === target.permissions) {
+    applyPermissionPreset(target);
   }
   submitRuntimeSettings(event.target === target.model);
 });
@@ -586,13 +591,23 @@ function showConversationShell(
   const model = runtimeSelect('Model', 'conversation-runtime-model');
   const effort = runtimeSelect('Reasoning', 'conversation-runtime-effort');
   const serviceTier = runtimeSelect('Speed', 'conversation-runtime-speed');
+  const permissions = runtimeSelect('Permissions', 'conversation-runtime-permissions');
   const sandbox = runtimeSelect('Sandbox', 'conversation-runtime-sandbox');
   const approvalPolicy = runtimeSelect('Approvals', 'conversation-runtime-approvals');
-  settingsGrid.append(model.container, effort.container, serviceTier.container, sandbox.container, approvalPolicy.container);
+  const approvalsReviewer = runtimeSelect('Reviewer', 'conversation-runtime-reviewer');
+  settingsGrid.append(model.container, effort.container, serviceTier.container, permissions.container);
+  const advanced = document.createElement('details');
+  advanced.className = 'conversation-runtime-advanced';
+  const advancedSummary = document.createElement('summary');
+  advancedSummary.textContent = 'Advanced';
+  const advancedGrid = document.createElement('div');
+  advancedGrid.className = 'conversation-runtime-advanced-grid';
+  advancedGrid.append(sandbox.container, approvalPolicy.container, approvalsReviewer.container);
+  advanced.append(advancedSummary, advancedGrid);
   const settingsHint = document.createElement('p');
   settingsHint.className = 'conversation-runtime-hint';
   settingsHint.textContent = 'Changes apply to the next turn.';
-  settingsMenu.append(settingsGrid, settingsHint);
+  settingsMenu.append(settingsGrid, advanced, settingsHint);
   settings.append(settingsSummary, settingsMenu);
   tools.append(addWrap, settings);
   const inputLabel = document.createElement('label');
@@ -643,8 +658,10 @@ function showConversationShell(
     model: model.select,
     effort: effort.select,
     serviceTier: serviceTier.select,
+    permissions: permissions.select,
     sandbox: sandbox.select,
-    approvalPolicy: approvalPolicy.select
+    approvalPolicy: approvalPolicy.select,
+    approvalsReviewer: approvalsReviewer.select
   };
   conversationInteractionsTarget = interactions;
   updateConversationComposer();
@@ -1098,6 +1115,16 @@ function renderRuntimeSettings(target: ConversationComposerTarget): void {
     true,
     defaultRuntimeLabel('Default speed', runtime?.defaultServiceTier, runtime?.serviceTiers ?? [])
   );
+  const permissionPreset = runtimePermissionPreset(runtime);
+  const permissionOptions = [
+    { value: 'ask', label: 'Ask for approval', description: 'Ask you before crossing the workspace boundary' },
+    { value: 'auto', label: 'Approve for me', description: 'Let an independent reviewer decide eligible requests' },
+    { value: 'full', label: 'Full access', description: 'Run without sandbox restrictions or approval prompts' }
+  ];
+  if (permissionPreset === 'custom') {
+    permissionOptions.unshift({ value: 'custom', label: 'Custom (current)', description: 'Keep the current detailed permission settings' });
+  }
+  syncSelect(target.permissions, permissionOptions, permissionPreset, false);
   syncSelect(target.sandbox, [
     { value: 'read-only', label: 'Read only', description: 'No workspace writes' },
     { value: 'workspace-write', label: 'Workspace', description: 'Write inside the workspace' },
@@ -1112,7 +1139,23 @@ function renderRuntimeSettings(target: ConversationComposerTarget): void {
     approvalOptions.unshift({ value: 'custom', label: 'Custom (current)', description: 'Granular policy from Codex' });
   }
   syncSelect(target.approvalPolicy, approvalOptions, runtime?.approvalPolicy ?? 'on-request', false);
-  for (const select of [target.model, target.effort, target.serviceTier, target.sandbox, target.approvalPolicy]) {
+  const reviewerOptions = [
+    { value: 'user', label: 'User', description: 'Show approval requests to you' },
+    { value: 'auto_review', label: 'Auto review', description: 'Send eligible requests to an independent reviewer' }
+  ];
+  if (runtime?.approvalsReviewer === 'custom') {
+    reviewerOptions.unshift({ value: 'custom', label: 'Custom (current)', description: 'Reviewer configured by Codex' });
+  }
+  syncSelect(target.approvalsReviewer, reviewerOptions, runtime?.approvalsReviewer ?? 'user', false);
+  for (const select of [
+    target.model,
+    target.effort,
+    target.serviceTier,
+    target.permissions,
+    target.sandbox,
+    target.approvalPolicy,
+    target.approvalsReviewer
+  ]) {
     select.disabled = !ready;
   }
   target.settings.title = runtime?.message ?? 'Changes apply to the next turn.';
@@ -1124,7 +1167,11 @@ function submitRuntimeSettings(modelChanged: boolean): void {
   const sessionId = conversationSessionId;
   const threadId = conversationThreadId;
   if (!target || !state || !sessionId || !threadId || state.runtime.status !== 'ready') return;
-  if (!isRuntimeApprovalPolicy(target.approvalPolicy.value) || !isSandboxMode(target.sandbox.value)) {
+  if (
+    !isRuntimeApprovalPolicy(target.approvalPolicy.value) ||
+    !isRuntimeApprovalsReviewer(target.approvalsReviewer.value) ||
+    !isSandboxMode(target.sandbox.value)
+  ) {
     renderRuntimeSettings(target);
     return;
   }
@@ -1137,9 +1184,42 @@ function submitRuntimeSettings(modelChanged: boolean): void {
       effort: modelChanged ? null : target.effort.value || null,
       serviceTier: modelChanged ? null : target.serviceTier.value || null,
       sandbox: target.sandbox.value,
-      approvalPolicy: target.approvalPolicy.value
+      approvalPolicy: target.approvalPolicy.value,
+      approvalsReviewer: target.approvalsReviewer.value
     }
   });
+}
+
+function applyPermissionPreset(target: ConversationComposerTarget): void {
+  switch (target.permissions.value) {
+    case 'ask':
+      target.sandbox.value = 'workspace-write';
+      target.approvalPolicy.value = 'on-request';
+      target.approvalsReviewer.value = 'user';
+      break;
+    case 'auto':
+      target.sandbox.value = 'workspace-write';
+      target.approvalPolicy.value = 'on-request';
+      target.approvalsReviewer.value = 'auto_review';
+      break;
+    case 'full':
+      target.sandbox.value = 'danger-full-access';
+      target.approvalPolicy.value = 'never';
+      target.approvalsReviewer.value = 'user';
+      break;
+  }
+}
+
+function runtimePermissionPreset(
+  runtime: ConversationScreenState['runtime'] | undefined
+): 'ask' | 'auto' | 'full' | 'custom' {
+  if (!runtime) return 'ask';
+  if (runtime.sandbox === 'workspace-write' && runtime.approvalPolicy === 'on-request') {
+    if (runtime.approvalsReviewer === 'user') return 'ask';
+    if (runtime.approvalsReviewer === 'auto_review') return 'auto';
+  }
+  if (runtime.sandbox === 'danger-full-access' && runtime.approvalPolicy === 'never') return 'full';
+  return 'custom';
 }
 
 function toggleAddMenu(): void {
@@ -1197,6 +1277,10 @@ function isSandboxMode(value: string): value is 'read-only' | 'workspace-write' 
 
 function isRuntimeApprovalPolicy(value: string): value is 'untrusted' | 'on-request' | 'never' | 'custom' {
   return value === 'untrusted' || value === 'on-request' || value === 'never' || value === 'custom';
+}
+
+function isRuntimeApprovalsReviewer(value: string): value is 'user' | 'auto_review' | 'custom' {
+  return value === 'user' || value === 'auto_review' || value === 'custom';
 }
 
 function announceCompletedConversationTurn(

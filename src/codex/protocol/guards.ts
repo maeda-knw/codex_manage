@@ -6,6 +6,7 @@ import type { ThreadReadResponse } from './generated/v2/ThreadReadResponse';
 import type { ThreadResumeResponse } from './generated/v2/ThreadResumeResponse';
 import type { ThreadStartResponse } from './generated/v2/ThreadStartResponse';
 import type { AskForApproval } from './generated/v2/AskForApproval';
+import type { ApprovalsReviewer } from './generated/v2/ApprovalsReviewer';
 import type { SandboxMode } from './generated/v2/SandboxMode';
 import type { ModelListResponse } from './generated/v2/ModelListResponse';
 import type { ThreadItem } from './generated/v2/ThreadItem';
@@ -37,6 +38,7 @@ export interface ConversationConfigDefaults {
   readonly serviceTier: string | null;
   readonly sandbox: SandboxMode | null;
   readonly approvalPolicy: AskForApproval | null;
+  readonly approvalsReviewer: ApprovalsReviewer | null;
 }
 
 export function isJsonObject(value: unknown): value is JsonObject {
@@ -144,7 +146,8 @@ export function parseConversationConfigDefaults(value: unknown): ConversationCon
     !isNullableString(config.model_reasoning_effort) ||
     !isNullableString(config.service_tier) ||
     !(config.sandbox_mode === null || isOneOf(config.sandbox_mode, ['read-only', 'workspace-write', 'danger-full-access'])) ||
-    !(config.approval_policy === null || isAskForApproval(config.approval_policy))
+    !(config.approval_policy === null || isAskForApproval(config.approval_policy)) ||
+    !(config.approvals_reviewer === null || isOneOf(config.approvals_reviewer, ['user', 'auto_review', 'guardian_subagent']))
   ) {
     throw new Error('App Server returned an invalid config/read response.');
   }
@@ -153,7 +156,8 @@ export function parseConversationConfigDefaults(value: unknown): ConversationCon
     reasoningEffort: config.model_reasoning_effort,
     serviceTier: config.service_tier,
     sandbox: config.sandbox_mode,
-    approvalPolicy: config.approval_policy as AskForApproval | null
+    approvalPolicy: config.approval_policy as AskForApproval | null,
+    approvalsReviewer: config.approvals_reviewer as ApprovalsReviewer | null
   };
 }
 
