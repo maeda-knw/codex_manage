@@ -97,6 +97,61 @@ test('upserts lifecycle notifications by turn and item ID and treats completion 
   assert.equal(state, terminal);
 });
 
+test('preserves live items until a partial turn completion can be authoritatively reloaded', () => {
+  let state = createConversationReducerState(createThread({ turns: [] }));
+  state = reduceConversationNotification(state, notification({
+    method: 'item/agentMessage/delta',
+    params: {
+      threadId: 'thread-1',
+      turnId: 'turn-partial',
+      itemId: 'agent-partial',
+      delta: 'Visible before completion'
+    }
+  }));
+  state = reduceConversationNotification(state, notification({
+    method: 'turn/completed',
+    params: {
+      threadId: 'thread-1',
+      turn: createTurn({
+        id: 'turn-partial',
+        items: [],
+        itemsView: 'notLoaded'
+      })
+    }
+  }));
+
+  const turn = state.thread.turns[0];
+  const item = turn?.items[0];
+  assert.equal(turn?.status, 'completed');
+  assert.equal(turn?.itemsView, 'notLoaded');
+  assert.equal(item?.type, 'agentMessage');
+  if (item?.type === 'agentMessage') {
+    assert.equal(item.text, 'Visible before completion');
+  }
+});
+
+test('does not downgrade a full terminal turn when a stale partial completion arrives', () => {
+  const fullTurn = createTurn({
+    id: 'turn-complete',
+    items: [agentMessage('agent-complete', 'Authoritative response')]
+  });
+  const state = createConversationReducerState(createThread({ turns: [fullTurn] }));
+  const next = reduceConversationNotification(state, notification({
+    method: 'turn/completed',
+    params: {
+      threadId: 'thread-1',
+      turn: createTurn({
+        id: 'turn-complete',
+        items: [],
+        itemsView: 'notLoaded'
+      })
+    }
+  }));
+
+  assert.equal(next, state);
+  assert.deepEqual(next.thread.turns[0], fullTurn);
+});
+
 test('keeps an early delta when started events arrive later', () => {
   let state = createConversationReducerState(createThread({ turns: [] }));
   state = reduceConversationNotification(state, notification({

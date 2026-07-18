@@ -148,6 +148,148 @@ test('applies streaming deltas and converges on the completed turn snapshot', ()
   assert.equal(session.snapshot().operation, 'idle');
 });
 
+test('keeps streamed text visible and uses one convergence workflow for duplicate completion', async () => {
+  const read = deferred<{ thread: Thread }>();
+  let readCalls = 0;
+  const client: ConversationSessionClient = {
+    ...passiveClient(),
+    readThread: async () => {
+      readCalls += 1;
+      return read.promise;
+    }
+  };
+  const session = new ConversationSession(client, createThread());
+  session.applyNotification({
+    method: 'item/agentMessage/delta',
+    params: {
+      threadId: 'thread-1',
+      turnId: 'turn-partial',
+      itemId: 'agent-partial',
+      delta: 'Streamed response'
+    }
+  });
+  const partialCompletion = {
+    method: 'turn/completed' as const,
+    params: {
+      threadId: 'thread-1',
+      turn: createTurn({
+        id: 'turn-partial',
+        items: [],
+        itemsView: 'notLoaded'
+      })
+    }
+  };
+  session.applyNotification(partialCompletion);
+  session.applyNotification(partialCompletion);
+
+  const provisional = session.snapshot().model.turns[0];
+  assert.equal(provisional?.itemsView, 'notLoaded');
+  assert.equal(provisional?.items[0]?.kind, 'message');
+  assert.equal(provisional?.items[0]?.kind === 'message' ? provisional.items[0].text : null, 'Streamed response');
+  assert.equal(readCalls, 1);
+
+  read.resolve({
+    thread: createThread({
+      turns: [createTurn({
+        id: 'turn-partial',
+        items: [{
+          type: 'agentMessage',
+          id: 'agent-partial',
+          text: 'Authoritative response',
+          phase: 'final_answer',
+          memoryCitation: null
+        }]
+      })]
+    })
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  const completed = session.snapshot().model.turns[0];
+  assert.equal(completed?.itemsView, 'full');
+  assert.equal(completed?.items[0]?.kind === 'message' ? completed.items[0].text : null, 'Authoritative response');
+  assert.equal(session.snapshot().sync, 'ready');
+  assert.equal(readCalls, 2);
+});
+
+test('keeps provisional text and requests manual reload when completion convergence fails', async () => {
+  const client: ConversationSessionClient = {
+    ...passiveClient(),
+    readThread: async () => {
+      throw new Error('private read failure');
+    }
+  };
+  const session = new ConversationSession(client, createThread());
+  session.applyNotification({
+    method: 'item/agentMessage/delta',
+    params: {
+      threadId: 'thread-1',
+      turnId: 'turn-partial',
+      itemId: 'agent-partial',
+      delta: 'Keep this response'
+    }
+  });
+  session.applyNotification({
+    method: 'turn/completed',
+    params: {
+      threadId: 'thread-1',
+      turn: createTurn({ id: 'turn-partial', items: [], itemsView: 'summary' })
+    }
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  const item = session.snapshot().model.turns[0]?.items[0];
+  assert.equal(item?.kind === 'message' ? item.text : null, 'Keep this response');
+  assert.equal(session.snapshot().sync, 'stale');
+  assert.match(session.snapshot().notice ?? '', /reload/iu);
+  assert.doesNotMatch(session.snapshot().notice ?? '', /private read failure/u);
+});
+
+test('ignores an automatic completion read that resolves after disconnect', async () => {
+  const read = deferred<{ thread: Thread }>();
+  const client: ConversationSessionClient = {
+    ...passiveClient(),
+    readThread: async () => read.promise
+  };
+  const session = new ConversationSession(client, createThread());
+  session.applyNotification({
+    method: 'item/agentMessage/delta',
+    params: {
+      threadId: 'thread-1',
+      turnId: 'turn-partial',
+      itemId: 'agent-partial',
+      delta: 'Provisional response'
+    }
+  });
+  session.applyNotification({
+    method: 'turn/completed',
+    params: {
+      threadId: 'thread-1',
+      turn: createTurn({ id: 'turn-partial', items: [], itemsView: 'notLoaded' })
+    }
+  });
+  session.markDisconnected();
+  read.resolve({
+    thread: createThread({
+      turns: [createTurn({
+        id: 'turn-partial',
+        items: [{
+          type: 'agentMessage',
+          id: 'agent-partial',
+          text: 'Late authoritative response',
+          phase: 'final_answer',
+          memoryCitation: null
+        }]
+      })]
+    })
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  const item = session.snapshot().model.turns[0]?.items[0];
+  assert.equal(item?.kind === 'message' ? item.text : null, 'Provisional response');
+  assert.equal(session.snapshot().sync, 'stale');
+  assert.match(session.snapshot().notice ?? '', /connection closed/iu);
+});
+
 test('stops only the host-owned active turn and rejects a duplicate Stop', async () => {
   const interrupt = deferred<Record<string, never>>();
   const calls: unknown[] = [];

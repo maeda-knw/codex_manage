@@ -160,13 +160,25 @@ function reduceTurnCompleted(
   state: ConversationReducerState,
   incoming: Turn
 ): ConversationReducerState {
+  const existing = findTurn(state.thread, incoming.id);
+  if (
+    existing &&
+    isTerminalTurn(existing) &&
+    existing.itemsView === 'full' &&
+    incoming.itemsView !== 'full'
+  ) {
+    return state;
+  }
   if (hasForeignItemOwner(state, incoming.id, incoming.items)) {
     return markNeedsResync(state);
   }
 
+  const completed = existing && incoming.itemsView !== 'full'
+    ? mergePartialCompletedTurn(existing, incoming)
+    : incoming;
   return {
-    thread: upsertTurn(state.thread, incoming),
-    items: replaceTurnItemStates(state.items, incoming.id, incoming.items, 'completed'),
+    thread: upsertTurn(state.thread, completed),
+    items: replaceTurnItemStates(state.items, incoming.id, completed.items, 'completed'),
     needsResync: state.needsResync || !isTerminalTurn(incoming)
   };
 }
@@ -303,6 +315,26 @@ function mergeStartedItem(current: ThreadItem, incoming: ThreadItem): ThreadItem
     return current;
   }
   return current;
+}
+
+function mergePartialCompletedTurn(existing: Turn, incoming: Turn): Turn {
+  const incomingById = new Map(incoming.items.map((item) => [item.id, item]));
+  const existingById = new Map(existing.items.map((item) => [item.id, item]));
+  const order = [
+    ...incoming.items.map((item) => item.id),
+    ...existing.items.map((item) => item.id).filter((id) => !incomingById.has(id))
+  ];
+  return {
+    ...incoming,
+    items: order.flatMap((id) => {
+      const current = existingById.get(id);
+      const next = incomingById.get(id);
+      if (current?.type === 'agentMessage' && next?.type === 'agentMessage') {
+        return [mergeStartedItem(current, next)];
+      }
+      return next ? [next] : current ? [current] : [];
+    })
+  };
 }
 
 function replaceTurnItemStates(

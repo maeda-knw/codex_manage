@@ -478,6 +478,61 @@ test('replays conversation notifications received while the initial history read
   );
 });
 
+test('automatically posts authoritative items when a completed turn notification omits details', async (t) => {
+  setWorkspace();
+  let readCalls = 0;
+  const provider = new ThreadListWebviewProvider({
+    extensionUri: vscode.Uri.file('/extension'),
+    conversationClient: fakeConversationClient(async (threadId) => {
+      readCalls += 1;
+      return readCalls === 1
+        ? createThread({ id: threadId })
+        : createThread({
+          id: threadId,
+          turns: [createTurn({
+            id: 'turn-completed',
+            items: [{
+              type: 'agentMessage',
+              id: 'agent-completed',
+              text: 'Visible without manual reload',
+              phase: 'final_answer',
+              memoryCitation: null
+            }]
+          })]
+        });
+    }),
+    logger: { appendLine: () => undefined }
+  });
+  t.after(() => provider.dispose());
+  provider.setSnapshot(snapshot(displayThread('thread-1', 'Thread 1')));
+  const view = new FakeWebviewView();
+  resolveProvider(provider, view);
+  view.webview.fire({ type: 'threads/ready' });
+  view.webview.fire({ type: 'threads/open', threadId: 'thread-1' });
+  await flushPromises();
+  view.webview.postedMessages.length = 0;
+
+  provider.handleNotification({
+    method: 'turn/completed',
+    params: {
+      threadId: 'thread-1',
+      turn: createTurn({
+        id: 'turn-completed',
+        items: [],
+        itemsView: 'notLoaded'
+      })
+    }
+  });
+  await flushConversationPosts();
+
+  const latest = [...view.webview.postedMessages].reverse().find(
+    (message) => (message as { type?: unknown }).type === 'threads/conversationState'
+  ) as { state?: { model?: { turns?: Array<{ itemsView?: string; items: Array<{ text?: string }> }> } } } | undefined;
+  assert.equal(readCalls, 2);
+  assert.equal(latest?.state?.model?.turns?.[0]?.itemsView, 'full');
+  assert.equal(latest?.state?.model?.turns?.[0]?.items[0]?.text, 'Visible without manual reload');
+});
+
 test('keeps a pending send tracked across Back and reopening the same conversation', async (t) => {
   setWorkspace();
   const start = deferred<{ turn: Turn }>();
