@@ -33,12 +33,15 @@ import {
   isJsonObject,
   isRequestId,
   parseInitializeResponse,
+  parseModelListResponse,
   parseThreadListResponse,
   parseThreadReadResponse,
   parseThreadResumeResponse,
   parseTurnInterruptResponse,
   parseTurnStartResponse
 } from './protocol/guards';
+import type { ModelListParams } from './protocol/generated/v2/ModelListParams';
+import type { ModelListResponse } from './protocol/generated/v2/ModelListResponse';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const SERVER_REQUEST_NOT_SUPPORTED = -32601;
@@ -205,6 +208,16 @@ export class AppServerClient {
       return parseTurnStartResponse(result);
     } catch (error) {
       throw this.classifyRequiredProtocolError(error, 'turn/start failed.');
+    }
+  }
+
+  public async listModels(params: ModelListParams): Promise<ModelListResponse> {
+    await this.connect();
+    try {
+      const result = await this.sendRequest((id) => ({ method: 'model/list', id, params }));
+      return parseModelListResponse(result);
+    } catch (error) {
+      throw this.classifyRequiredProtocolError(error, 'model/list failed.');
     }
   }
 

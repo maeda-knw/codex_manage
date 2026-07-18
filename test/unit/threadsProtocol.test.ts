@@ -34,7 +34,19 @@ const conversationState = {
       }
     ]
   },
-  execution: { kind: 'running', turnId: 'turn-1' }
+  execution: { kind: 'running', turnId: 'turn-1' },
+  runtime: {
+    status: 'ready',
+    models: [{ value: 'gpt-fixture', label: 'GPT Fixture', description: 'Fixture model' }],
+    model: 'gpt-fixture',
+    efforts: [{ value: 'medium', label: 'medium', description: 'Balanced' }],
+    effort: 'medium',
+    serviceTiers: [],
+    serviceTier: null,
+    sandbox: 'workspace-write',
+    approvalPolicy: 'on-request',
+    message: null
+  }
 } as const;
 
 test('accepts only the explicit sidebar navigation messages', () => {
@@ -78,6 +90,18 @@ test('accepts bounded composer actions and rejects arbitrary conversation payloa
     text: 'Continue this thread'
   }), true);
   assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/settings',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    settings: {
+      model: 'gpt-fixture',
+      effort: 'high',
+      serviceTier: 'fast',
+      sandbox: 'workspace-write',
+      approvalPolicy: 'on-request'
+    }
+  }), true);
+  assert.equal(isThreadsWebviewMessage({
     type: 'threads/conversation/stop',
     sessionId: 'session-1',
     threadId: 'thread-1',
@@ -99,6 +123,18 @@ test('accepts bounded composer actions and rejects arbitrary conversation payloa
     threadId: 'thread-1',
     requestId: 'request-1',
     text: 'Hello'
+  }), false);
+  assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/settings',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    settings: {
+      model: 'gpt-fixture',
+      effort: null,
+      serviceTier: null,
+      sandbox: 'danger-everywhere',
+      approvalPolicy: 'never'
+    }
   }), false);
   assert.equal(isThreadsWebviewMessage({
     type: 'threads/conversation/stop',

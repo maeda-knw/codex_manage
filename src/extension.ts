@@ -69,7 +69,8 @@ export function activate(context: vscode.ExtensionContext): void {
       readThread: (params) => (activeClient ?? replaceClient()).readThread(params),
       resumeThread: (params) => (activeClient ?? replaceClient()).resumeThread(params),
       startTurn: (params) => (activeClient ?? replaceClient()).startTurn(params),
-      interruptTurn: (params) => (activeClient ?? replaceClient()).interruptTurn(params)
+      interruptTurn: (params) => (activeClient ?? replaceClient()).interruptTurn(params),
+      listModels: (params) => (activeClient ?? replaceClient()).listModels(params)
     },
     logger: output
   });

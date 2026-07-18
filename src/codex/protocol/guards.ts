@@ -4,6 +4,7 @@ import type { Thread } from './generated/v2/Thread';
 import type { ThreadListResponse } from './generated/v2/ThreadListResponse';
 import type { ThreadReadResponse } from './generated/v2/ThreadReadResponse';
 import type { ThreadResumeResponse } from './generated/v2/ThreadResumeResponse';
+import type { ModelListResponse } from './generated/v2/ModelListResponse';
 import type { ThreadItem } from './generated/v2/ThreadItem';
 import type { ThreadStatus } from './generated/v2/ThreadStatus';
 import type { Turn } from './generated/v2/Turn';
@@ -116,6 +117,41 @@ export function parseTurnInterruptResponse(value: unknown): TurnInterruptRespons
   }
 
   return value as TurnInterruptResponse;
+}
+
+export function parseModelListResponse(value: unknown): ModelListResponse {
+  if (
+    !isJsonObject(value) ||
+    !Array.isArray(value.data) ||
+    !isNullableString(value.nextCursor) ||
+    !value.data.every((model) => (
+      isJsonObject(model) &&
+      typeof model.id === 'string' &&
+      typeof model.model === 'string' &&
+      typeof model.displayName === 'string' &&
+      typeof model.description === 'string' &&
+      typeof model.hidden === 'boolean' &&
+      typeof model.defaultReasoningEffort === 'string' &&
+      Array.isArray(model.supportedReasoningEfforts) &&
+      model.supportedReasoningEfforts.every((option) => (
+        isJsonObject(option) &&
+        typeof option.reasoningEffort === 'string' &&
+        typeof option.description === 'string'
+      )) &&
+      Array.isArray(model.serviceTiers) &&
+      model.serviceTiers.every((tier) => (
+        isJsonObject(tier) &&
+        typeof tier.id === 'string' &&
+        typeof tier.name === 'string' &&
+        typeof tier.description === 'string'
+      )) &&
+      isNullableString(model.defaultServiceTier) &&
+      typeof model.isDefault === 'boolean'
+    ))
+  ) {
+    throw new Error('App Server returned an invalid model/list response.');
+  }
+  return value as ModelListResponse;
 }
 
 export function parseConversationNotification(

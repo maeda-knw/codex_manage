@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   parseConversationNotification,
   parseInitializeResponse,
+  parseModelListResponse,
   parseThreadListResponse,
   parseThreadReadResponse
 } from '../../src/codex/protocol/guards';
@@ -22,6 +23,29 @@ test('accepts valid initialize and thread/list boundaries', () => {
     nextCursor: null,
     backwardsCursor: null
   }).data[0]?.id, 'thread-1');
+});
+
+test('validates model picker metadata before exposing runtime choices', () => {
+  const response = parseModelListResponse({
+    data: [{
+      id: 'fixture-id',
+      model: 'gpt-fixture',
+      displayName: 'GPT Fixture',
+      description: 'Fixture model',
+      hidden: false,
+      defaultReasoningEffort: 'medium',
+      supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: 'Balanced' }],
+      serviceTiers: [{ id: 'fast', name: 'Fast', description: 'Lower latency' }],
+      defaultServiceTier: null,
+      isDefault: true
+    }],
+    nextCursor: null
+  });
+  assert.equal(response.data[0]?.model, 'gpt-fixture');
+  assert.throws(
+    () => parseModelListResponse({ data: [{ model: 'unsafe' }], nextCursor: null }),
+    /invalid model\/list response/u
+  );
 });
 
 test('accepts a validated thread/read history including future item variants', () => {

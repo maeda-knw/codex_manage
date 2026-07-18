@@ -8,6 +8,12 @@ import type { TurnInterruptParams } from '../codex/protocol/generated/v2/TurnInt
 import type { TurnInterruptResponse } from '../codex/protocol/generated/v2/TurnInterruptResponse';
 import type { TurnStartParams } from '../codex/protocol/generated/v2/TurnStartParams';
 import type { TurnStartResponse } from '../codex/protocol/generated/v2/TurnStartResponse';
+import type { Model } from '../codex/protocol/generated/v2/Model';
+import type { ModelListParams } from '../codex/protocol/generated/v2/ModelListParams';
+import type { ModelListResponse } from '../codex/protocol/generated/v2/ModelListResponse';
+import type { AskForApproval } from '../codex/protocol/generated/v2/AskForApproval';
+import type { SandboxMode } from '../codex/protocol/generated/v2/SandboxMode';
+import type { SandboxPolicy } from '../codex/protocol/generated/v2/SandboxPolicy';
 import type { ConversationNotification } from '../codex/protocol/guards';
 import { AppServerError } from '../common/errors';
 import {
@@ -29,6 +35,36 @@ export interface ConversationSessionClient {
   readThread(params: ThreadReadParams): Promise<ThreadReadResponse>;
   startTurn(params: TurnStartParams): Promise<TurnStartResponse>;
   interruptTurn(params: TurnInterruptParams): Promise<TurnInterruptResponse>;
+  listModels(params: ModelListParams): Promise<ModelListResponse>;
+}
+
+export type SimpleApprovalPolicy = 'untrusted' | 'on-request' | 'never';
+
+export interface ConversationRuntimeOption {
+  readonly value: string;
+  readonly label: string;
+  readonly description: string;
+}
+
+export interface ConversationRuntimeSettings {
+  readonly status: 'loading' | 'ready' | 'unavailable';
+  readonly models: readonly ConversationRuntimeOption[];
+  readonly model: string | null;
+  readonly efforts: readonly ConversationRuntimeOption[];
+  readonly effort: string | null;
+  readonly serviceTiers: readonly ConversationRuntimeOption[];
+  readonly serviceTier: string | null;
+  readonly sandbox: SandboxMode;
+  readonly approvalPolicy: SimpleApprovalPolicy | 'custom';
+  readonly message: string | null;
+}
+
+export interface ConversationRuntimeSettingsUpdate {
+  readonly model: string;
+  readonly effort: string | null;
+  readonly serviceTier: string | null;
+  readonly sandbox: SandboxMode;
+  readonly approvalPolicy: SimpleApprovalPolicy;
 }
 
 export type ConversationSessionSync = 'ready' | 'stale' | 'error';
@@ -47,6 +83,7 @@ export interface ConversationSessionSnapshot {
   readonly operation: ConversationSessionOperation;
   readonly activeTurnId: string | null;
   readonly notice: string | null;
+  readonly runtime: ConversationRuntimeSettings;
 }
 
 export type ConversationSessionListener = (snapshot: ConversationSessionSnapshot) => void;
@@ -64,6 +101,21 @@ export class ConversationSession {
   private stopPending = false;
   private resyncPending = false;
   private disposed = false;
+  private settingsPending = false;
+  private modelCatalog: readonly Model[] = [];
+  private approvalPolicy: AskForApproval = 'on-request';
+  private runtime: ConversationRuntimeSettings = {
+    status: 'loading',
+    models: [],
+    model: null,
+    efforts: [],
+    effort: null,
+    serviceTiers: [],
+    serviceTier: null,
+    sandbox: 'workspace-write',
+    approvalPolicy: 'on-request',
+    message: null
+  };
 
   public constructor(
     private readonly client: ConversationSessionClient,
@@ -94,8 +146,68 @@ export class ConversationSession {
       sync: this.sync,
       operation: this.operation,
       activeTurnId: activeConversationTurnId(this.reducer),
-      notice: this.notice
+      notice: this.notice,
+      runtime: this.runtime
     };
+  }
+
+  public async loadRuntimeSettings(): Promise<boolean> {
+    if (this.disposed || this.settingsPending) {
+      return false;
+    }
+    this.settingsPending = true;
+    this.runtime = { ...this.runtime, status: 'loading', message: null };
+    this.publish();
+    try {
+      const [models, resumed] = await Promise.all([
+        this.loadAllModels(),
+        this.client.resumeThread({ threadId: this.reducer.thread.id })
+      ]);
+      if (this.disposed || resumed.thread.id !== this.reducer.thread.id) {
+        return false;
+      }
+      this.modelCatalog = models.filter((model) => !model.hidden);
+      this.approvalPolicy = resumed.approvalPolicy;
+      this.runtime = runtimeSettingsFrom(
+        this.modelCatalog,
+        resumed.model,
+        resumed.reasoningEffort,
+        resumed.serviceTier,
+        sandboxModeFromPolicy(resumed.sandbox),
+        resumed.approvalPolicy
+      );
+      this.publish();
+      return true;
+    } catch (error) {
+      if (!this.disposed) {
+        this.runtime = {
+          ...this.runtime,
+          status: 'unavailable',
+          message: safeSessionErrorMessage(error, 'load conversation settings')
+        };
+        this.publish();
+      }
+      return false;
+    } finally {
+      this.settingsPending = false;
+    }
+  }
+
+  public updateRuntimeSettings(update: ConversationRuntimeSettingsUpdate): boolean {
+    if (this.disposed || this.runtime.status !== 'ready' || !isRuntimeUpdateValid(this.modelCatalog, update)) {
+      return false;
+    }
+    this.approvalPolicy = update.approvalPolicy;
+    this.runtime = runtimeSettingsFrom(
+      this.modelCatalog,
+      update.model,
+      update.effort,
+      update.serviceTier,
+      update.sandbox,
+      update.approvalPolicy
+    );
+    this.publish();
+    return true;
   }
 
   public updateTitle(title: string): void {
@@ -149,7 +261,15 @@ export class ConversationSession {
     });
 
     try {
-      const resumed = await this.client.resumeThread({ threadId: this.reducer.thread.id });
+      const resumed = await this.client.resumeThread({
+        threadId: this.reducer.thread.id,
+        ...(this.runtime.status === 'ready' && this.runtime.model ? {
+          model: this.runtime.model,
+          serviceTier: this.runtime.serviceTier,
+          approvalPolicy: this.approvalPolicy,
+          sandbox: this.runtime.sandbox
+        } : {})
+      });
       if (!this.isCurrent(generation)) {
         return false;
       }
@@ -193,7 +313,13 @@ export class ConversationSession {
       const response = await this.client.startTurn({
         threadId: this.reducer.thread.id,
         clientUserMessageId: randomUUID(),
-        input: [{ type: 'text', text, text_elements: [] }]
+        input: [{ type: 'text', text, text_elements: [] }],
+        ...(this.runtime.status === 'ready' && this.runtime.model ? {
+          model: this.runtime.model,
+          serviceTier: this.runtime.serviceTier,
+          effort: this.runtime.effort,
+          approvalPolicy: this.approvalPolicy
+        } : {})
       });
       if (!this.isCurrent(generation)) {
         return false;
@@ -484,6 +610,82 @@ export class ConversationSession {
 
   private isCurrent(generation: number): boolean {
     return !this.disposed && generation === this.asyncGeneration;
+  }
+
+  private async loadAllModels(): Promise<readonly Model[]> {
+    const models: Model[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 10; page += 1) {
+      const response = await this.client.listModels({ cursor, limit: 100, includeHidden: false });
+      models.push(...response.data);
+      if (!response.nextCursor) {
+        return models;
+      }
+      cursor = response.nextCursor;
+    }
+    throw new AppServerError('protocol-error', 'model/list returned too many pages.');
+  }
+}
+
+function runtimeSettingsFrom(
+  models: readonly Model[],
+  selectedModel: string,
+  effort: string | null,
+  serviceTier: string | null,
+  sandbox: SandboxMode,
+  approvalPolicy: AskForApproval
+): ConversationRuntimeSettings {
+  const model = models.find((candidate) => candidate.model === selectedModel);
+  const modelOptions = models.map((candidate) => ({
+    value: candidate.model,
+    label: candidate.displayName,
+    description: candidate.description
+  }));
+  if (!modelOptions.some((option) => option.value === selectedModel)) {
+    modelOptions.unshift({ value: selectedModel, label: selectedModel, description: 'Current model' });
+  }
+  return {
+    status: 'ready',
+    models: modelOptions,
+    model: selectedModel,
+    efforts: (model?.supportedReasoningEfforts ?? []).map((option) => ({
+      value: option.reasoningEffort,
+      label: option.reasoningEffort,
+      description: option.description
+    })),
+    effort: effort ?? model?.defaultReasoningEffort ?? null,
+    serviceTiers: (model?.serviceTiers ?? []).map((tier) => ({
+      value: tier.id,
+      label: tier.name,
+      description: tier.description
+    })),
+    serviceTier,
+    sandbox,
+    approvalPolicy: typeof approvalPolicy === 'string' ? approvalPolicy : 'custom',
+    message: null
+  };
+}
+
+function isRuntimeUpdateValid(
+  models: readonly Model[],
+  update: ConversationRuntimeSettingsUpdate
+): boolean {
+  const model = models.find((candidate) => candidate.model === update.model);
+  return Boolean(
+    model &&
+    (update.effort === null || model.supportedReasoningEfforts.some((option) => option.reasoningEffort === update.effort)) &&
+    (update.serviceTier === null || model.serviceTiers.some((tier) => tier.id === update.serviceTier)) &&
+    ['read-only', 'workspace-write', 'danger-full-access'].includes(update.sandbox) &&
+    ['untrusted', 'on-request', 'never'].includes(update.approvalPolicy)
+  );
+}
+
+function sandboxModeFromPolicy(policy: SandboxPolicy): SandboxMode {
+  switch (policy.type) {
+    case 'readOnly': return 'read-only';
+    case 'workspaceWrite': return 'workspace-write';
+    case 'dangerFullAccess': return 'danger-full-access';
+    case 'externalSandbox': return 'read-only';
   }
 }
 

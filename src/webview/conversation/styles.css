@@ -147,20 +147,41 @@ summary:focus-visible {
   background: var(--vscode-editorWidget-background);
 }
 
-.message-label {
-  margin-bottom: 6px;
-  color: var(--vscode-descriptionForeground);
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-
-.message-text,
 .activity-detail {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-family: var(--vscode-font-family);
 }
+
+.message-text { overflow-wrap: anywhere; line-height: 1.5; }
+.message-text > :first-child { margin-top: 0; }
+.message-text > :last-child { margin-bottom: 0; }
+.message-text p { margin: 0 0 0.75em; }
+.message-text h1,
+.message-text h2,
+.message-text h3,
+.message-text h4,
+.message-text h5,
+.message-text h6 { margin: 0.9em 0 0.45em; line-height: 1.25; }
+.message-text ul,
+.message-text ol { margin: 0.5em 0; padding-left: 1.6em; }
+.message-text blockquote {
+  margin: 0.6em 0;
+  padding-left: 0.8em;
+  color: var(--vscode-descriptionForeground);
+  border-left: 3px solid var(--vscode-textBlockQuote-border);
+}
+.message-text pre {
+  margin: 0.65em 0;
+  padding: 8px;
+  overflow: auto;
+  background: var(--vscode-textCodeBlock-background);
+  border-radius: 4px;
+}
+.message-text code { font-family: var(--vscode-editor-font-family, monospace); background: var(--vscode-textCodeBlock-background); }
+.message-text a { color: var(--vscode-textLink-foreground); }
+.message-text a:hover { color: var(--vscode-textLink-activeForeground); }
 
 .activity-card {
   display: block;

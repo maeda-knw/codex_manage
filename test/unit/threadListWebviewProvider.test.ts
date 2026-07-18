@@ -132,7 +132,8 @@ function fakeConversationClient(
     },
     interruptTurn: async () => {
       throw new Error('Unexpected turn/interrupt call.');
-    }
+    },
+    listModels: async () => ({ data: [], nextCursor: null })
   };
 }
 
@@ -249,7 +250,8 @@ test('sends, streams, and stops only the active sidebar conversation', async (t)
     interruptTurn: async (params) => {
       interruptCalls.push(params);
       return {};
-    }
+    },
+    listModels: async () => ({ data: [], nextCursor: null })
   };
   const provider = new ThreadListWebviewProvider({
     extensionUri: vscode.Uri.file('/extension'),
@@ -620,7 +622,7 @@ test('automatically resynchronizes the active conversation after reconnect', asy
   await flushPromises();
   await flushConversationPosts();
 
-  assert.equal(resumeCalls, 1);
+  assert.equal(resumeCalls, 2);
   assert.equal(readCalls, 2);
   const latest = [...view.webview.postedMessages].reverse().find(
     (message) => (message as { type?: unknown }).type === 'threads/conversationState'

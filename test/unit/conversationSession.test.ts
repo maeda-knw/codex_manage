@@ -75,7 +75,8 @@ test('resumes before starting a text turn and locks concurrent sends', async () 
       startParams.push(params);
       return start.promise;
     },
-    interruptTurn: async () => ({})
+    interruptTurn: async () => ({}),
+    listModels: async () => ({ data: [], nextCursor: null })
   };
   const session = new ConversationSession(client, createThread());
 
@@ -364,11 +365,75 @@ test('updates cached display metadata without changing conversation history', ()
   assert.deepEqual(session.snapshot().model.turns.map((turn) => turn.id), ['turn-kept']);
 });
 
+test('loads validated runtime choices and applies changed settings only to the next turn', async () => {
+  const resumeParams: unknown[] = [];
+  const startParams: unknown[] = [];
+  const client: ConversationSessionClient = {
+    ...passiveClient(),
+    listModels: async () => ({
+      data: [{
+        id: 'fixture-id',
+        model: 'gpt-fixture',
+        upgrade: null,
+        upgradeInfo: null,
+        availabilityNux: null,
+        displayName: 'GPT Fixture',
+        description: 'Fixture model',
+        hidden: false,
+        supportedReasoningEfforts: [
+          { reasoningEffort: 'medium', description: 'Balanced' },
+          { reasoningEffort: 'high', description: 'More reasoning' }
+        ],
+        defaultReasoningEffort: 'medium',
+        inputModalities: [],
+        supportsPersonality: false,
+        additionalSpeedTiers: [],
+        serviceTiers: [{ id: 'fast', name: 'Fast', description: 'Lower latency' }],
+        defaultServiceTier: null,
+        isDefault: true
+      }],
+      nextCursor: null
+    }),
+    resumeThread: async (params) => {
+      resumeParams.push(params);
+      return resumeResponse(createThread({ id: params.threadId }));
+    },
+    startTurn: async (params) => {
+      startParams.push(params);
+      return { turn: liveTurn() };
+    }
+  };
+  const session = new ConversationSession(client, createThread());
+
+  assert.equal(await session.loadRuntimeSettings(), true);
+  assert.equal(session.snapshot().runtime.model, 'gpt-fixture');
+  assert.equal(session.updateRuntimeSettings({
+    model: 'gpt-fixture',
+    effort: 'high',
+    serviceTier: 'fast',
+    sandbox: 'read-only',
+    approvalPolicy: 'never'
+  }), true);
+  assert.equal(await session.send('Use the selected runtime'), true);
+
+  assert.deepEqual(resumeParams[1], {
+    threadId: 'thread-1',
+    model: 'gpt-fixture',
+    serviceTier: 'fast',
+    approvalPolicy: 'never',
+    sandbox: 'read-only'
+  });
+  assert.equal((startParams[0] as { effort?: unknown }).effort, 'high');
+  assert.equal((startParams[0] as { serviceTier?: unknown }).serviceTier, 'fast');
+  assert.equal((startParams[0] as { approvalPolicy?: unknown }).approvalPolicy, 'never');
+});
+
 function passiveClient(): ConversationSessionClient {
   return {
     resumeThread: async (params) => resumeResponse(createThread({ id: params.threadId })),
     readThread: async (params) => ({ thread: createThread({ id: params.threadId }) }),
     startTurn: async () => ({ turn: liveTurn() }),
-    interruptTurn: async () => ({})
+    interruptTurn: async () => ({}),
+    listModels: async () => ({ data: [], nextCursor: null })
   };
 }
