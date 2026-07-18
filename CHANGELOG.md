@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- GitHub Actions CI is now manual-only and no longer runs automatically for pushes or pull requests.
+
 - Runtime permissions now follow the official Codex presets: Ask for approval, Approve for me, and Full access. Detailed sandbox, approval, and reviewer controls remain available under Advanced, and auto-review is forwarded to existing and new conversations.
 
 - Replaced the Runtime trigger label with a compact summary at the Add/Send font size, shortened GPT model names, omitted default markers, non-Fast speed tiers, and the standard Workspace permission, and retained Read only or Full access when effective.

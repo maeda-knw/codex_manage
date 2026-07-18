@@ -23,7 +23,7 @@ npm run test:vscode
 npm run package
 ```
 
-The GitHub Actions workflow runs quality, packaging, and Extension Host checks on Windows, macOS, and Linux. The local Extension Host test uses VS Code 1.92.2, matching the minimum supported release line.
+The GitHub Actions workflow runs quality, packaging, and Extension Host checks on Windows, macOS, and Linux only when started manually with **Run workflow**. Pushes and pull requests do not start it automatically, preserving the repository's limited Actions minutes. The local Extension Host test uses VS Code 1.92.2, matching the minimum supported release line.
 
 `verify:protocol` uses the pinned `@openai/codex` package to regenerate the App Server TypeScript protocol in a temporary directory. It compares all generated files and the recorded CLI version without replacing the checked-in snapshot or reading user conversations.
 
@@ -36,7 +36,7 @@ The GitHub Actions workflow runs quality, packaging, and Extension Host checks o
 | Untrusted Markdown | Renders HTML-like input, fenced code, safe links, `javascript:`, `data:`, and relative links against a minimal DOM and asserts that executable nodes or unsafe anchors are not created. |
 | Webview boundary | Validates CSP, nonce usage, local resource roots, command URI restrictions, message allowlists, input bounds, and stale session isolation. |
 | Protocol drift | Regenerates all App Server TypeScript files from the exact pinned CLI and rejects missing, added, or changed files. |
-| Cross-platform packaging | Runs verification, VSIX packaging, and Extension Host activation on Windows, macOS, and Linux in CI. |
+| Cross-platform packaging | Runs verification, VSIX packaging, and Extension Host activation on Windows, macOS, and Linux when the CI workflow is started manually. |
 
 The load gates are regression tests, not product-scale benchmarks. Record long-duration UI behavior and assistive-technology results in the manual matrix below before declaring Phase D complete.
 
