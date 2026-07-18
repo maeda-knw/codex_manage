@@ -17,12 +17,28 @@ Run before creating a VSIX:
 
 ```bash
 npm run doctor
+npm run verify:protocol
 npm run verify
 npm run test:vscode
 npm run package
 ```
 
 The GitHub Actions workflow runs quality, packaging, and Extension Host checks on Windows, macOS, and Linux. The local Extension Host test uses VS Code 1.92.2, matching the minimum supported release line.
+
+`verify:protocol` uses the pinned `@openai/codex` package to regenerate the App Server TypeScript protocol in a temporary directory. It compares all generated files and the recorded CLI version without replacing the checked-in snapshot or reading user conversations.
+
+## Phase D automated quality gates
+
+| Risk | Automated gate |
+| --- | --- |
+| Large stored history | Builds and indexes 1,000 turns and 2,000 items under a bounded test timeout. |
+| Long streaming response | Applies 5,000 agent-message deltas, converges on the authoritative completion, and rejects 5,000 foreign-thread notifications. |
+| Untrusted Markdown | Renders HTML-like input, fenced code, safe links, `javascript:`, `data:`, and relative links against a minimal DOM and asserts that executable nodes or unsafe anchors are not created. |
+| Webview boundary | Validates CSP, nonce usage, local resource roots, command URI restrictions, message allowlists, input bounds, and stale session isolation. |
+| Protocol drift | Regenerates all App Server TypeScript files from the exact pinned CLI and rejects missing, added, or changed files. |
+| Cross-platform packaging | Runs verification, VSIX packaging, and Extension Host activation on Windows, macOS, and Linux in CI. |
+
+The load gates are regression tests, not product-scale benchmarks. Record long-duration UI behavior and assistive-technology results in the manual matrix below before declaring Phase D complete.
 
 ## Platform matrix
 
@@ -34,6 +50,19 @@ The GitHub Actions workflow runs quality, packaging, and Extension Host checks o
 | WSL | Shared code paths and workspace-extension manifest | Install/authenticate CLI inside WSL and refresh threads |
 | Remote SSH | Shared code paths and workspace-extension manifest | Install/authenticate CLI on the remote host |
 | Dev Container | Shared code paths and workspace-extension manifest | Install/authenticate CLI in the container |
+
+## Phase D manual evidence
+
+Record the environment and result for each release candidate. Do not mark Phase D complete from CI alone.
+
+| Environment | VS Code / Codex CLI | Accessibility or remote mode | Result / evidence |
+| --- | --- | --- | --- |
+| Windows | Pending | Keyboard, Windows High Contrast, NVDA | Pending |
+| macOS | Pending | Keyboard, increased contrast, VoiceOver | Pending |
+| Linux | Pending | Keyboard, forced colors where available, Orca | Pending |
+| WSL | Pending | Remote Extension Host and CLI authentication inside WSL | Pending |
+| Remote SSH | Pending | Remote Extension Host and remote CLI | Pending |
+| Dev Container | Pending | Container Extension Host and container CLI | Pending |
 
 ## Manual acceptance checklist
 
@@ -56,6 +85,7 @@ The GitHub Actions workflow runs quality, packaging, and Extension Host checks o
 - Send a multiline text prompt with Ctrl/Cmd+Enter and confirm Enter alone inserts a line break.
 - Double-click Send and press the shortcut repeatedly while sending; confirm only one turn starts and the draft clears only after acceptance.
 - Confirm the Codex reply grows in place while streaming without collapsing an expanded work card or moving focus unexpectedly.
+- Keep a response streaming for at least 15 minutes and confirm memory remains stable enough for continued navigation, Stop, and Back operations.
 - Scroll away from the bottom during a response and confirm streaming does not force the viewport back down.
 - Select **Stop** during a response and confirm only the visible thread's active turn is interrupted.
 - Disconnect or stop the App Server, confirm the last transcript remains visible and the composer becomes unavailable, then use **Reload** and confirm resume/read restores the authoritative history.
@@ -65,6 +95,8 @@ The GitHub Actions workflow runs quality, packaging, and Extension Host checks o
 - Use Arrow Up/Down, Home/End, Tab, Shift+Tab, the collapsible group headings, and every inline action to confirm visible focus and keyboard access; arrow navigation must skip collapsed groups, and list updates must preserve the active heading or card control.
 - Pin into a collapsed Pinned group, archive into a collapsed Archive group, restore into Recent, and confirm focus moves to the corresponding action, card, or destination group heading without disappearing.
 - Confirm message text containing HTML-like text is displayed literally and does not create executable markup.
+- Open Runtime settings and confirm its trigger does not move, the menu opens above it, and Sol, Terra, and Luna can each be selected when advertised by the App Server.
+- In forced-colors/high-contrast mode, confirm thread cards, menus, fields, messages, and focused controls retain visible boundaries and a two-pixel focus indicator.
 - Confirm partial stored history shows a summary notice rather than pretending all work items are present.
 - Configure a missing CLI path and confirm Settings/Retry guidance appears.
 - Confirm the Output Channel reports resolved source/path and both CLI versions.

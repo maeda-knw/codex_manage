@@ -260,7 +260,14 @@ details .activity-summary {
 @media (forced-colors: active) {
   .message,
   .activity-card,
+  .activity-detail,
+  .turn-error,
   .secondary-button {
     border-color: CanvasText;
+  }
+
+  .secondary-button:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid Highlight;
   }
 }

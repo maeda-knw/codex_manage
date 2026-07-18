@@ -138,8 +138,9 @@
     "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
     "test": "node scripts/run-tests.mjs",
     "test:vscode": "npm run build && node scripts/run-vscode-tests.mjs",
+    "verify:protocol": "node scripts/verify-protocol-snapshot.mjs",
     "verify:package-files": "node scripts/verify-package-contents.mjs",
-    "verify": "npm run doctor && npm run test && npm run typecheck && npm run typecheck:webview && npm run typecheck:test && npm run lint && npm run build && npm run verify:package-files",
+    "verify": "npm run doctor && npm run verify:protocol && npm run test && npm run typecheck && npm run typecheck:webview && npm run typecheck:test && npm run lint && npm run build && npm run verify:package-files",
     "generate:protocol": "node scripts/generate-protocol.mjs",
     "package": "npm run build && npm run verify:package-files && vsce package --no-dependencies",
     "vscode:prepublish": "npm run build"
