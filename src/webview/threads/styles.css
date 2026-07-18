@@ -556,7 +556,20 @@ button.conversation-stop.is-disabled {
 @media (forced-colors: active) {
   .thread-card,
   button:not(.thread-open),
+  summary,
+  input,
+  select,
+  .conversation-add-menu,
+  .conversation-runtime-menu,
   .conversation-composer-input {
     border-color: CanvasText;
+  }
+
+  button:focus-visible,
+  summary:focus-visible,
+  input:focus-visible,
+  select:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
   }
 }

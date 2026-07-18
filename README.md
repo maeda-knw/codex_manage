@@ -154,8 +154,9 @@ npm run package
 - `npm run bootstrap:offline`: reuses healthy dependencies or installs from the local npm cache and fails quickly if the cache is incomplete.
 - `npm run bootstrap`: reuses healthy dependencies or runs a cache-preferred locked install with bounded fetch retries and a post-install health check.
 - `npm run doctor`: verifies direct dependency versions and runtime files required by TypeScript, esbuild, and VSCE.
+- `npm run verify:protocol`: regenerates the App Server TypeScript protocol into a temporary directory and rejects drift from the checked-in snapshot or pinned Codex CLI version.
 - `npm run test:vscode`: downloads VS Code 1.92.2 into `.vscode-test` and runs Extension Host registration tests.
-- `npm run verify`: tests, Extension Host/Webview type checking, lint, bundle generation, and required VSIX-file verification.
+- `npm run verify`: dependency health, protocol drift, unit/integration/load/security tests, Extension Host/Webview type checking, lint, bundle generation, and required VSIX-file verification.
 - `npm run package`: builds the extension, verifies its runtime assets, and creates the private VSIX.
 
 The opt-in real CLI smoke test initializes, lists one metadata record, and—when a matching thread exists—reads that thread only to validate its ID and stored-turn array:

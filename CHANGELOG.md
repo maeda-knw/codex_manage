@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added Phase D load regression coverage for thousand-turn histories, long streaming responses, authoritative convergence, and cross-thread isolation.
+- Added DOM-level Markdown security tests for inert HTML and blocked unsafe link protocols.
+- Added a protocol snapshot drift gate that regenerates all App Server TypeScript types from the pinned Codex CLI during verification.
+- Improved forced-colors focus and boundary visibility and added a release evidence matrix for accessibility and remote environments.
 - Fixed the Runtime settings popover so it opens above its trigger without shifting the composer controls.
 - Fixed runtime model selection to preserve every App Server catalog entry, including GPT-5.6 Sol, Terra, and Luna.
 - Added pinned Node.js/npm toolchain metadata, cache-first dependency bootstrap commands, and a dependency doctor that rejects partial npm extractions.
