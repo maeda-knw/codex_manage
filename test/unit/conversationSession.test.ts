@@ -565,7 +565,8 @@ test('loads validated runtime choices and applies changed settings only to the n
     effort: 'high',
     serviceTier: 'fast',
     sandbox: 'read-only',
-    approvalPolicy: 'never'
+    approvalPolicy: 'never',
+    approvalsReviewer: 'auto_review'
   }), true);
   assert.equal(await session.send('Use the selected runtime'), true);
 
@@ -574,11 +575,13 @@ test('loads validated runtime choices and applies changed settings only to the n
     model: 'gpt-fixture',
     serviceTier: 'fast',
     approvalPolicy: 'never',
+    approvalsReviewer: 'auto_review',
     sandbox: 'read-only'
   });
   assert.equal((startParams[0] as { effort?: unknown }).effort, 'high');
   assert.equal((startParams[0] as { serviceTier?: unknown }).serviceTier, 'fast');
   assert.equal((startParams[0] as { approvalPolicy?: unknown }).approvalPolicy, 'never');
+  assert.equal((startParams[0] as { approvalsReviewer?: unknown }).approvalsReviewer, 'auto_review');
 });
 
 test('switches every advertised model while preserving a granular approval policy', async () => {
@@ -647,7 +650,8 @@ test('switches every advertised model while preserving a granular approval polic
       effort: null,
       serviceTier: null,
       sandbox: 'workspace-write',
-      approvalPolicy: 'custom'
+      approvalPolicy: 'custom',
+      approvalsReviewer: 'user'
     }), true);
     assert.equal(session.snapshot().runtime.defaultEffort, selectedModel.defaultReasoningEffort);
     assert.equal(await session.send(`Use ${selectedModel.displayName}`), true);

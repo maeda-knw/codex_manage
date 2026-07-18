@@ -10,6 +10,7 @@ import type { ThreadPageState, ThreadRepositorySnapshot } from '../codex/threadR
 import type { Thread } from '../codex/protocol/generated/v2/Thread';
 import type { Model } from '../codex/protocol/generated/v2/Model';
 import type { AskForApproval } from '../codex/protocol/generated/v2/AskForApproval';
+import type { ApprovalsReviewer } from '../codex/protocol/generated/v2/ApprovalsReviewer';
 import type { ThreadStartParams } from '../codex/protocol/generated/v2/ThreadStartParams';
 import type { ThreadStartResponse } from '../codex/protocol/generated/v2/ThreadStartResponse';
 import type { ConversationConfigDefaults } from '../codex/protocol/guards';
@@ -94,6 +95,7 @@ interface NewConversationDraft {
   runtime: ConversationRuntimeSettings;
   models: readonly Model[];
   approvalPolicy: AskForApproval;
+  approvalsReviewer: ApprovalsReviewer;
   runtimeLoadVersion: number;
   createPending: boolean;
   createdThread: Thread | undefined;
@@ -548,6 +550,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
       runtime: loadingRuntimeSettings(),
       models: [],
       approvalPolicy: 'on-request',
+      approvalsReviewer: 'user',
       runtimeLoadVersion: 0,
       createPending: false,
       createdThread: undefined,
@@ -597,13 +600,15 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
         }
         draft.models = models;
         draft.approvalPolicy = defaults.approvalPolicy ?? 'on-request';
+        draft.approvalsReviewer = defaults.approvalsReviewer ?? 'user';
         draft.runtime = createConversationRuntimeSettings(
           models,
           selectedModel,
           defaults.reasoningEffort,
           defaults.serviceTier,
           defaults.sandbox ?? 'read-only',
-          draft.approvalPolicy
+          draft.approvalPolicy,
+          draft.approvalsReviewer
         );
         this.postNewConversationState(draft, { kind: 'idle' });
       },
@@ -765,7 +770,12 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
       if (
         draft.createPending ||
         draft.runtime.status !== 'ready' ||
-        !isConversationRuntimeUpdateValid(draft.models, draft.runtime.approvalPolicy, settings)
+        !isConversationRuntimeUpdateValid(
+          draft.models,
+          draft.runtime.approvalPolicy,
+          draft.runtime.approvalsReviewer,
+          settings
+        )
       ) {
         this.options.logger.appendLine('[threads] Ignored invalid new conversation settings.');
         return;
@@ -773,13 +783,17 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
       if (settings.approvalPolicy !== 'custom') {
         draft.approvalPolicy = settings.approvalPolicy;
       }
+      if (settings.approvalsReviewer !== 'custom') {
+        draft.approvalsReviewer = settings.approvalsReviewer;
+      }
       draft.runtime = createConversationRuntimeSettings(
         draft.models,
         settings.model,
         settings.effort,
         settings.serviceTier,
         settings.sandbox,
-        settings.approvalPolicy
+        settings.approvalPolicy,
+        settings.approvalsReviewer
       );
       this.postNewConversationState(draft, { kind: 'idle' });
       return;
@@ -822,6 +836,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
       serviceTier: draft.runtime.serviceTier,
       cwd: draft.cwd,
       approvalPolicy: draft.approvalPolicy,
+      approvalsReviewer: draft.approvalsReviewer,
       sandbox: draft.runtime.sandbox,
       ephemeral: false,
       sessionStartSource: 'startup',
@@ -839,7 +854,8 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
           model,
           serviceTier: draft.runtime.serviceTier,
           effort: draft.runtime.effort,
-          approvalPolicy: draft.approvalPolicy
+          approvalPolicy: draft.approvalPolicy,
+          approvalsReviewer: draft.approvalsReviewer
         });
         this.finishNewConversation(
           draft,
@@ -886,7 +902,8 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
       started.reasoningEffort,
       started.serviceTier,
       draft.runtime.sandbox,
-      started.approvalPolicy
+      started.approvalPolicy,
+      started.approvalsReviewer
     );
     for (const notification of draft.notifications) session.applyNotification(notification);
     if (draft.overflowed || draft.malformed) session.markDisconnected();
@@ -1241,6 +1258,7 @@ function loadingRuntimeSettings(): ConversationRuntimeSettings {
     defaultServiceTier: null,
     sandbox: 'read-only',
     approvalPolicy: 'on-request',
+    approvalsReviewer: 'user',
     message: null
   };
 }

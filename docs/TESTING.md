@@ -23,7 +23,7 @@ npm run test:vscode
 npm run package
 ```
 
-The GitHub Actions workflow runs quality, packaging, and Extension Host checks on Windows, macOS, and Linux. The local Extension Host test uses VS Code 1.92.2, matching the minimum supported release line.
+The GitHub Actions workflow runs quality, packaging, and Extension Host checks on Windows, macOS, and Linux only when started manually with **Run workflow**. Pushes and pull requests do not start it automatically, preserving the repository's limited Actions minutes. The local Extension Host test uses VS Code 1.92.2, matching the minimum supported release line.
 
 `verify:protocol` uses the pinned `@openai/codex` package to regenerate the App Server TypeScript protocol in a temporary directory. It compares all generated files and the recorded CLI version without replacing the checked-in snapshot or reading user conversations.
 
@@ -36,7 +36,7 @@ The GitHub Actions workflow runs quality, packaging, and Extension Host checks o
 | Untrusted Markdown | Renders HTML-like input, fenced code, safe links, `javascript:`, `data:`, and relative links against a minimal DOM and asserts that executable nodes or unsafe anchors are not created. |
 | Webview boundary | Validates CSP, nonce usage, local resource roots, command URI restrictions, message allowlists, input bounds, and stale session isolation. |
 | Protocol drift | Regenerates all App Server TypeScript files from the exact pinned CLI and rejects missing, added, or changed files. |
-| Cross-platform packaging | Runs verification, VSIX packaging, and Extension Host activation on Windows, macOS, and Linux in CI. |
+| Cross-platform packaging | Runs verification, VSIX packaging, and Extension Host activation on Windows, macOS, and Linux when the CI workflow is started manually. |
 
 The load gates are regression tests, not product-scale benchmarks. Record long-duration UI behavior and assistive-technology results in the manual matrix below before declaring Phase D complete.
 
@@ -98,9 +98,10 @@ Record the environment and result for each release candidate. Do not mark Phase 
 - Use Arrow Up/Down, Home/End, Tab, Shift+Tab, the collapsible group headings, and every inline action to confirm visible focus and keyboard access; arrow navigation must skip collapsed groups, and list updates must preserve the active heading or card control.
 - Pin into a collapsed Pinned group, archive into a collapsed Archive group, restore into Recent, and confirm focus moves to the corresponding action, card, or destination group heading without disappearing.
 - Confirm message text containing HTML-like text is displayed literally and does not create executable markup.
-- Confirm the Runtime trigger always shows the current model and reasoning level, plus speed when available; default, unlisted, and unavailable values must never render as a blank label.
-- Open Runtime settings and confirm its trigger does not move, the menu opens above it, and Sol, Terra, and Luna can each be selected when advertised by the App Server, including for a conversation started by the official Codex extension with a custom approval policy.
+- Confirm the Runtime trigger shows the current model as `5.6 Sol` or the matching version/variant, the effective reasoning level without a `Default` marker, and `Fast` only when that speed is effective. `Workspace` must be omitted while `Read only` and `Full access` remain visible, and the trigger text must match the Add/Send font size.
+- Open Runtime settings and confirm its compact trigger does not move, the menu opens above it, and Sol, Terra, and Luna can each be selected when advertised by the App Server, including for a conversation started by the official Codex extension with a custom approval policy.
 - Confirm clicks inside Runtime settings keep it open, an outside click closes it, and Escape closes it while returning keyboard focus to the Runtime trigger.
+- In Runtime settings, select **Ask for approval**, **Approve for me**, and **Full access** in turn. Confirm Advanced shows the matching sandbox, approval policy, and reviewer, and verify the next turn uses that combination. Confirm a non-preset current configuration is shown as **Custom (current)** without being overwritten.
 - In forced-colors/high-contrast mode, confirm thread cards, menus, fields, messages, and focused controls retain visible boundaries and a two-pixel focus indicator.
 - Confirm partial stored history shows a summary notice rather than pretending all work items are present.
 - Configure a missing CLI path and confirm Settings/Retry guidance appears.

@@ -409,25 +409,18 @@ button.conversation-add,
 }
 
 .conversation-runtime-settings > summary {
-  display: grid;
-  justify-items: end;
-  gap: 1px;
-  max-width: min(360px, calc(100vw - 90px));
-  padding: 4px 8px;
-}
-
-.conversation-runtime-label {
-  color: var(--vscode-descriptionForeground);
-  font-size: 0.66rem;
-  line-height: 1;
+  display: block;
+  max-width: min(260px, calc(100vw - 95px));
+  padding: 6px 8px;
 }
 
 .conversation-runtime-current {
   display: block;
-  max-width: 100%;
+  min-width: 0;
   overflow: hidden;
-  font-size: 0.76rem;
-  line-height: 1.25;
+  color: var(--vscode-foreground);
+  font-size: inherit;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -483,10 +476,27 @@ button.conversation-add,
   background: var(--vscode-dropdown-background);
   border: 1px solid var(--vscode-dropdown-border, var(--vscode-widget-border));
 }
+.conversation-runtime-advanced {
+  margin-top: 7px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.78rem;
+}
+.conversation-runtime-advanced > summary { cursor: pointer; }
+.conversation-runtime-advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+.conversation-runtime-advanced-grid .conversation-runtime-field:first-child { grid-column: auto; }
 .conversation-runtime-hint {
   margin: 5px 0 0;
   color: var(--vscode-descriptionForeground);
   font-size: 0.72rem;
+}
+
+@media (max-width: 360px) {
+  .conversation-runtime-advanced-grid { grid-template-columns: 1fr; }
 }
 
 .conversation-composer-input {
@@ -537,6 +547,8 @@ button.conversation-add,
   font-size: 0.78rem;
   overflow-wrap: anywhere;
 }
+
+.conversation-composer-status:empty { display: none; }
 
 .conversation-composer-controls {
   display: flex;

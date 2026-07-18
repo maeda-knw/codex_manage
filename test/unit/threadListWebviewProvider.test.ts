@@ -254,7 +254,8 @@ test('creates one conversation from the first message and transitions to its run
       reasoningEffort: null,
       serviceTier: null,
       sandbox: 'workspace-write',
-      approvalPolicy: 'on-request'
+      approvalPolicy: 'on-request',
+      approvalsReviewer: 'user'
     }),
     onConversationCreated: (thread) => created.push(thread.id),
     logger: { appendLine: () => undefined }
@@ -283,7 +284,8 @@ test('creates one conversation from the first message and transitions to its run
       effort: 'medium',
       serviceTier: 'priority',
       sandbox: 'read-only',
-      approvalPolicy: 'never'
+      approvalPolicy: 'never',
+      approvalsReviewer: 'auto_review'
     }
   });
   view.webview.fire({
@@ -308,6 +310,7 @@ test('creates one conversation from the first message and transitions to its run
     serviceTier: 'priority',
     cwd: 'D:\\workspace',
     approvalPolicy: 'never',
+    approvalsReviewer: 'auto_review',
     sandbox: 'read-only',
     ephemeral: false,
     sessionStartSource: 'startup',
@@ -315,6 +318,7 @@ test('creates one conversation from the first message and transitions to its run
   });
   assert.equal((turnStarts[0] as { threadId?: unknown }).threadId, 'thread-created');
   assert.equal((turnStarts[0] as { effort?: unknown }).effort, 'medium');
+  assert.equal((turnStarts[0] as { approvalsReviewer?: unknown }).approvalsReviewer, 'auto_review');
   assert.deepEqual(created, ['thread-created']);
   const transition = view.webview.postedMessages.find(
     (message) => (message as { type?: unknown }).type === 'threads/conversationCreated'
@@ -355,7 +359,7 @@ test('keeps a new-conversation draft after creation failure and isolates a late 
     },
     readConversationConfig: async () => ({
       model: 'gpt-fixture', reasoningEffort: null, serviceTier: null,
-      sandbox: null, approvalPolicy: null
+      sandbox: null, approvalPolicy: null, approvalsReviewer: null
     }),
     logger: { appendLine: () => undefined }
   });
@@ -417,7 +421,7 @@ test('keeps a new-conversation draft unavailable across disconnect and reloads i
       configReads += 1;
       return {
         model: 'gpt-fixture', reasoningEffort: 'medium', serviceTier: null,
-        sandbox: 'workspace-write', approvalPolicy: 'on-request'
+        sandbox: 'workspace-write', approvalPolicy: 'on-request', approvalsReviewer: 'user'
       };
     },
     logger: { appendLine: () => undefined }

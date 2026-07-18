@@ -57,11 +57,13 @@ test('validates new conversation config and thread boundaries', () => {
       model_reasoning_effort: null,
       service_tier: 'priority',
       sandbox_mode: 'workspace-write',
-      approval_policy: 'on-request'
+      approval_policy: 'on-request',
+      approvals_reviewer: 'auto_review'
     }
   });
   assert.equal(defaults.model, 'gpt-fixture');
   assert.equal(defaults.sandbox, 'workspace-write');
+  assert.equal(defaults.approvalsReviewer, 'auto_review');
   assert.equal(parseThreadStartResponse({
     thread: validThread,
     model: 'gpt-fixture',

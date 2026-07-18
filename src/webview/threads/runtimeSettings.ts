@@ -3,17 +3,43 @@ import type { ConversationRuntimeSettings } from '../../conversation/conversatio
 export function runtimeSettingsSummary(runtime: ConversationRuntimeSettings | undefined): string {
   if (!runtime || runtime.status === 'loading') return 'Loading settings…';
   if (runtime.status === 'unavailable') return 'Unavailable';
-  const model = runtimeOptionLabel(runtime.models, runtime.model) ?? 'Current model unavailable';
-  const effort = runtime.effort
-    ? runtimeOptionLabel(runtime.efforts, runtime.effort) ?? `${runtime.effort} (current, unlisted)`
-    : defaultRuntimeLabel('Default', runtime.defaultEffort, runtime.efforts);
-  const parts = [model, effort];
-  if (runtime.serviceTiers.length > 0 || runtime.serviceTier || runtime.defaultServiceTier) {
-    parts.push(runtime.serviceTier
-      ? runtimeOptionLabel(runtime.serviceTiers, runtime.serviceTier) ?? `${runtime.serviceTier} (current, unlisted)`
-      : defaultRuntimeLabel('Default speed', runtime.defaultServiceTier, runtime.serviceTiers));
-  }
+  const model = compactModelLabel(
+    runtimeOptionLabel(runtime.models, runtime.model) ?? runtime.model ?? 'Model unavailable'
+  );
+  const effort = effectiveRuntimeLabel(
+    runtime.efforts,
+    runtime.effort,
+    runtime.defaultEffort
+  );
+  const parts = [model];
+  if (effort) parts.push(effort);
+  if (isFastRuntime(runtime)) parts.push('Fast');
+  const permission = runtimePermissionLabel(runtime);
+  if (permission !== 'Ask for approval') parts.push(permission);
   return parts.join(' · ');
+}
+
+export function compactModelLabel(label: string): string {
+  const version = label.match(/\bgpt[-_\s]*([0-9]+(?:\.[0-9]+)*)/iu)?.[1];
+  if (!version) return stripRuntimeMetadata(label);
+  const variant = label.match(/(?:^|[-_\s])(sol|terra|luna)(?=$|[-_\s(])/iu)?.[1];
+  return variant
+    ? `${version} ${variant[0]?.toUpperCase() ?? ''}${variant.slice(1).toLowerCase()}`
+    : version;
+}
+
+export function runtimePermissionLabel(
+  runtime: Pick<ConversationRuntimeSettings, 'sandbox' | 'approvalPolicy' | 'approvalsReviewer'>
+): string {
+  if (runtime.sandbox === 'workspace-write' && runtime.approvalPolicy === 'on-request') {
+    if (runtime.approvalsReviewer === 'user') return 'Ask for approval';
+    if (runtime.approvalsReviewer === 'auto_review') return 'Approve for me';
+  }
+  if (runtime.sandbox === 'danger-full-access' && runtime.approvalPolicy === 'never') {
+    return 'Full access';
+  }
+  if (runtime.sandbox === 'read-only') return 'Read only';
+  return 'Custom permissions';
 }
 
 export function defaultRuntimeLabel(
@@ -30,4 +56,29 @@ function runtimeOptionLabel(
   value: string | null | undefined
 ): string | undefined {
   return value ? options.find((option) => option.value === value)?.label : undefined;
+}
+
+function effectiveRuntimeLabel(
+  options: readonly { readonly value: string; readonly label: string }[],
+  selectedValue: string | null | undefined,
+  defaultValue: string | null | undefined
+): string | undefined {
+  const value = selectedValue ?? defaultValue;
+  if (!value) return undefined;
+  return stripRuntimeMetadata(runtimeOptionLabel(options, value) ?? runtimeValueLabel(value));
+}
+
+function isFastRuntime(runtime: ConversationRuntimeSettings): boolean {
+  const value = runtime.serviceTier ?? runtime.defaultServiceTier;
+  if (!value) return false;
+  const label = stripRuntimeMetadata(runtimeOptionLabel(runtime.serviceTiers, value) ?? value);
+  return value.toLowerCase() === 'fast' || value.toLowerCase() === 'priority' || label.toLowerCase() === 'fast';
+}
+
+function stripRuntimeMetadata(label: string): string {
+  return label.replace(/\s*\(current, unlisted\)\s*$/iu, '').trim();
+}
+
+function runtimeValueLabel(value: string): string {
+  return value ? `${value[0]?.toUpperCase() ?? ''}${value.slice(1)}` : value;
 }

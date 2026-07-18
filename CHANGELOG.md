@@ -2,11 +2,16 @@
 
 ## Unreleased
 
+- GitHub Actions CI is now manual-only and no longer runs automatically for pushes or pull requests.
+
+- Runtime permissions now follow the official Codex presets: Ask for approval, Approve for me, and Full access. Detailed sandbox, approval, and reviewer controls remain available under Advanced, and auto-review is forwarded to existing and new conversations.
+
+- Replaced the Runtime trigger label with a compact summary at the Add/Send font size, shortened GPT model names, omitted default markers, non-Fast speed tiers, and the standard Workspace permission, and retained Read only or Full access when effective.
 - Added a workspace-scoped **New conversation** flow that applies validated runtime defaults, creates a thread on the first text send, and transitions directly into its running turn.
 - Added duplicate-submit prevention, draft preservation on failure, late-result isolation, notification buffering, and ID-based list deduplication for new conversations.
 - Added strict `config/read` and `thread/start` response boundaries plus fake App Server integration coverage for runtime forwarding and malformed responses.
 - Fixed Runtime settings changes for conversations with granular approval policies while preserving the host-owned policy unchanged.
-- Added an always-visible model, reasoning, and available speed summary with explicit default, unlisted, and unavailable states, plus outside-click and Escape dismissal.
+- Added an always-visible model and reasoning summary, explicit default, unlisted, and unavailable picker states, plus outside-click and Escape dismissal.
 - Fixed partially loaded turn-completion notifications so streamed text remains visible and the conversation automatically converges on authoritative history without a manual reload.
 - Added Phase D load regression coverage for thousand-turn histories, long streaming responses, authoritative convergence, and cross-thread isolation.
 - Added DOM-level Markdown security tests for inert HTML and blocked unsafe link protocols.

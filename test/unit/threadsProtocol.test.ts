@@ -47,6 +47,7 @@ const conversationState = {
     defaultServiceTier: null,
     sandbox: 'workspace-write',
     approvalPolicy: 'on-request',
+    approvalsReviewer: 'user',
     message: null
   },
   interactions: []
@@ -103,7 +104,8 @@ test('accepts bounded composer actions and rejects arbitrary conversation payloa
       effort: null,
       serviceTier: null,
       sandbox: 'workspace-write',
-      approvalPolicy: 'custom'
+      approvalPolicy: 'custom',
+      approvalsReviewer: 'custom'
     }
   }), true);
   assert.equal(isThreadsWebviewMessage({
@@ -129,7 +131,8 @@ test('accepts bounded composer actions and rejects arbitrary conversation payloa
       effort: 'high',
       serviceTier: 'fast',
       sandbox: 'workspace-write',
-      approvalPolicy: 'on-request'
+      approvalPolicy: 'on-request',
+      approvalsReviewer: 'auto_review'
     }
   }), true);
   assert.equal(isThreadsWebviewMessage({
@@ -164,7 +167,8 @@ test('accepts bounded composer actions and rejects arbitrary conversation payloa
       effort: null,
       serviceTier: null,
       sandbox: 'danger-everywhere',
-      approvalPolicy: 'never'
+      approvalPolicy: 'never',
+      approvalsReviewer: 'user'
     }
   }), false);
   assert.equal(isThreadsWebviewMessage({

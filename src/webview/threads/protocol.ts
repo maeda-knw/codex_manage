@@ -373,6 +373,7 @@ function isRuntimeSettings(value: unknown): value is ConversationRuntimeSettings
     (value.defaultServiceTier === null || typeof value.defaultServiceTier === 'string') &&
     isSandboxMode(value.sandbox) &&
     (value.approvalPolicy === 'untrusted' || value.approvalPolicy === 'on-request' || value.approvalPolicy === 'never' || value.approvalPolicy === 'custom') &&
+    (value.approvalsReviewer === 'user' || value.approvalsReviewer === 'auto_review' || value.approvalsReviewer === 'custom') &&
     (value.message === null || typeof value.message === 'string')
   );
 }
@@ -384,7 +385,7 @@ function isRuntimeOption(value: unknown): boolean {
 function isRuntimeSettingsUpdate(value: unknown): value is ConversationRuntimeSettingsUpdate {
   return (
     isObject(value) &&
-    hasOnlyKeys(value, ['model', 'effort', 'serviceTier', 'sandbox', 'approvalPolicy']) &&
+    hasOnlyKeys(value, ['model', 'effort', 'serviceTier', 'sandbox', 'approvalPolicy', 'approvalsReviewer']) &&
     typeof value.model === 'string' && Boolean(value.model) &&
     (value.effort === null || typeof value.effort === 'string') &&
     (value.serviceTier === null || typeof value.serviceTier === 'string') &&
@@ -394,6 +395,11 @@ function isRuntimeSettingsUpdate(value: unknown): value is ConversationRuntimeSe
       value.approvalPolicy === 'on-request' ||
       value.approvalPolicy === 'never' ||
       value.approvalPolicy === 'custom'
+    ) &&
+    (
+      value.approvalsReviewer === 'user' ||
+      value.approvalsReviewer === 'auto_review' ||
+      value.approvalsReviewer === 'custom'
     )
   );
 }
