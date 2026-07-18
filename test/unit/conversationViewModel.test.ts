@@ -12,6 +12,10 @@ const hiddenValues = {
   hook: 'secret hook fragment'
 };
 
+const fileReferencePath = 'D:\\作業\\AGENTS.md';
+const fileReferencePrefix = 'Referenced file: ';
+const fileReferenceText = `${fileReferencePrefix}${fileReferencePath}`;
+
 const items: ThreadItem[] = [
   {
     type: 'userMessage',
@@ -19,9 +23,20 @@ const items: ThreadItem[] = [
     clientId: null,
     content: [
       { type: 'text', text: '<script>alert(1)</script>', text_elements: [] },
+      {
+        type: 'text',
+        text: fileReferenceText,
+        text_elements: [{
+          byteRange: {
+            start: Buffer.byteLength(fileReferencePrefix, 'utf8'),
+            end: Buffer.byteLength(fileReferenceText, 'utf8')
+          },
+          placeholder: '@AGENTS.md'
+        }]
+      },
       { type: 'localImage', path: 'D:\\image.png' },
       { type: 'skill', name: 'review', path: 'D:\\skill' },
-      { type: 'mention', name: 'AGENTS.md', path: 'D:\\AGENTS.md' }
+      { type: 'mention', name: 'figma', path: 'app://figma' }
     ]
   },
   {
@@ -108,15 +123,17 @@ test('maps stored history in order while excluding sensitive work payloads', () 
   assert.equal(userMessage?.kind, 'message');
   if (userMessage?.kind === 'message') {
     assert.match(userMessage.text, /<script>alert\(1\)<\/script>/u);
+    assert.match(userMessage.text, /Referenced file: @AGENTS\.md/u);
     assert.match(userMessage.text, /\[Image attachment\]/u);
     assert.match(userMessage.text, /\[Skill: review\]/u);
-    assert.match(userMessage.text, /\[Mention: AGENTS\.md\]/u);
+    assert.match(userMessage.text, /\[Mention: figma\]/u);
   }
 
   const serialized = JSON.stringify(model);
   for (const hidden of Object.values(hiddenValues)) {
     assert.equal(serialized.includes(hidden), false, `Expected hidden payload not to include ${hidden}.`);
   }
+  assert.equal(serialized.includes(fileReferencePath), false);
   assert.match(serialized, /Checked the implementation/u);
   assert.match(serialized, /npm test/u);
   assert.match(serialized, /src\/example\.ts/u);

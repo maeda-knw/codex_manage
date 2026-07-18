@@ -9,6 +9,7 @@ import type { AskForApproval } from './generated/v2/AskForApproval';
 import type { ApprovalsReviewer } from './generated/v2/ApprovalsReviewer';
 import type { SandboxMode } from './generated/v2/SandboxMode';
 import type { ModelListResponse } from './generated/v2/ModelListResponse';
+import type { SkillsListResponse } from './generated/v2/SkillsListResponse';
 import type { ThreadItem } from './generated/v2/ThreadItem';
 import type { ThreadStatus } from './generated/v2/ThreadStatus';
 import type { Turn } from './generated/v2/Turn';
@@ -210,6 +211,34 @@ export function parseModelListResponse(value: unknown): ModelListResponse {
     throw new Error('App Server returned an invalid model/list response.');
   }
   return value as ModelListResponse;
+}
+
+export function parseSkillsListResponse(
+  value: unknown,
+  requestedCwds: readonly string[] = []
+): SkillsListResponse {
+  if (
+    !isJsonObject(value) ||
+    !Array.isArray(value.data) ||
+    !value.data.every((entry) => (
+      isJsonObject(entry) &&
+      typeof entry.cwd === 'string' &&
+      (requestedCwds.length === 0 || requestedCwds.includes(entry.cwd)) &&
+      Array.isArray(entry.skills) &&
+      entry.skills.every((skill) => (
+        isJsonObject(skill) &&
+        typeof skill.name === 'string' &&
+        typeof skill.description === 'string' &&
+        typeof skill.path === 'string' &&
+        isOneOf(skill.scope, ['user', 'repo', 'system', 'admin']) &&
+        typeof skill.enabled === 'boolean'
+      )) &&
+      Array.isArray(entry.errors)
+    ))
+  ) {
+    throw new Error('App Server returned an invalid skills/list response.');
+  }
+  return value as SkillsListResponse;
 }
 
 export function parseConversationNotification(

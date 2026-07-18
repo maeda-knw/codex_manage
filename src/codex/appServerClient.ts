@@ -38,6 +38,7 @@ import {
   parseInitializeResponse,
   parseConversationConfigDefaults,
   parseModelListResponse,
+  parseSkillsListResponse,
   parseThreadListResponse,
   parseThreadReadResponse,
   parseThreadResumeResponse,
@@ -48,6 +49,8 @@ import {
 } from './protocol/guards';
 import type { ModelListParams } from './protocol/generated/v2/ModelListParams';
 import type { ModelListResponse } from './protocol/generated/v2/ModelListResponse';
+import type { SkillsListParams } from './protocol/generated/v2/SkillsListParams';
+import type { SkillsListResponse } from './protocol/generated/v2/SkillsListResponse';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const SERVER_REQUEST_NOT_SUPPORTED = -32601;
@@ -278,6 +281,16 @@ export class AppServerClient {
       return parseModelListResponse(result);
     } catch (error) {
       throw this.classifyRequiredProtocolError(error, 'model/list failed.');
+    }
+  }
+
+  public async listSkills(params: SkillsListParams): Promise<SkillsListResponse> {
+    await this.connect();
+    try {
+      const result = await this.sendRequest((id) => ({ method: 'skills/list', id, params }));
+      return parseSkillsListResponse(result, params.cwds);
+    } catch (error) {
+      throw this.classifyRequiredProtocolError(error, 'skills/list failed.');
     }
   }
 

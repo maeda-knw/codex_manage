@@ -105,6 +105,39 @@ test('resumes before starting a text turn and locks concurrent sends', async () 
   assert.equal(session.snapshot().operation, 'running');
 });
 
+test('sends host-selected images, file references, and Skills after text in the same turn', async () => {
+  const startParams: unknown[] = [];
+  const client: ConversationSessionClient = {
+    ...passiveClient(),
+    resumeThread: async () => resumeResponse(createThread()),
+    startTurn: async (params) => {
+      startParams.push(params);
+      return { turn: liveTurn() };
+    }
+  };
+  const session = new ConversationSession(client, createThread());
+
+  assert.equal(await session.send('Review this', [
+    { type: 'localImage', path: '/workspace/diagram.png' },
+    {
+      type: 'text',
+      text: 'Referenced file: /workspace/AGENTS.md',
+      text_elements: [{ byteRange: { start: 17, end: 37 }, placeholder: '@AGENTS.md' }]
+    },
+    { type: 'skill', name: 'review', path: '/skills/review/SKILL.md' }
+  ]), true);
+  assert.deepEqual((startParams[0] as { input: unknown }).input, [
+    { type: 'text', text: 'Review this', text_elements: [] },
+    { type: 'localImage', path: '/workspace/diagram.png' },
+    {
+      type: 'text',
+      text: 'Referenced file: /workspace/AGENTS.md',
+      text_elements: [{ byteRange: { start: 17, end: 37 }, placeholder: '@AGENTS.md' }]
+    },
+    { type: 'skill', name: 'review', path: '/skills/review/SKILL.md' }
+  ]);
+});
+
 test('applies streaming deltas and converges on the completed turn snapshot', () => {
   const client = passiveClient();
   const session = new ConversationSession(client, createThread());

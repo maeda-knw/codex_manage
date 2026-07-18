@@ -199,7 +199,7 @@ function formatUserInputs(inputs: readonly UserInput[]): string {
   const text = inputs.map((input) => {
     switch (input.type) {
       case 'text':
-        return input.text;
+        return formatTextInput(input.text, input.text_elements);
       case 'image':
       case 'localImage':
         return '[Image attachment]';
@@ -211,6 +211,32 @@ function formatUserInputs(inputs: readonly UserInput[]): string {
   }).filter(Boolean).join('\n\n');
 
   return text || 'Empty message.';
+}
+
+function formatTextInput(
+  text: string,
+  elements: Extract<UserInput, { readonly type: 'text' }>['text_elements']
+): string {
+  if (elements.length === 0) return text;
+  const bytes = Buffer.from(text, 'utf8');
+  const ordered = [...elements].sort((left, right) => left.byteRange.start - right.byteRange.start);
+  let cursor = 0;
+  let formatted = '';
+  for (const element of ordered) {
+    const { start, end } = element.byteRange;
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start < cursor ||
+      end < start ||
+      end > bytes.length
+    ) return text;
+    formatted += bytes.subarray(cursor, start).toString('utf8');
+    formatted += element.placeholder ?? bytes.subarray(start, end).toString('utf8');
+    cursor = end;
+  }
+  formatted += bytes.subarray(cursor).toString('utf8');
+  return formatted;
 }
 
 function activity(

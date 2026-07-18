@@ -85,6 +85,24 @@ lines.on('line', (line) => {
         }
       }
     });
+  } else if (message.method === 'skills/list' && mode === 'conversation-live') {
+    if (message.params?.cwds?.[0] !== '/workspace' || message.params?.forceReload !== false) {
+      send({ id: message.id, error: { code: -32602, message: 'Expected workspace Skill query' } });
+    } else {
+      send({
+        id: message.id,
+        result: {
+          data: [{
+            cwd: '/workspace',
+            skills: [{
+              name: 'review', description: 'Review changes', path: '/skills/review/SKILL.md',
+              scope: 'repo', enabled: true
+            }],
+            errors: []
+          }]
+        }
+      });
+    }
   } else if (message.method === 'thread/resume' && mode === 'conversation-live') {
     if (message.params?.threadId !== 'thread-1') {
       send({ id: message.id, error: { code: -32602, message: 'Expected thread-1' } });
@@ -93,13 +111,26 @@ lines.on('line', (line) => {
     }
   } else if (message.method === 'turn/start' && mode === 'conversation-live') {
     const textInput = message.params?.input?.[0];
+    const imageInput = message.params?.input?.[1];
+    const fileReferenceInput = message.params?.input?.[2];
+    const skillInput = message.params?.input?.[3];
     if (
       message.params?.threadId !== 'thread-1' ||
       message.params?.clientUserMessageId !== 'client-message-1' ||
       textInput?.type !== 'text' ||
       textInput?.text !== 'Continue the fixture' ||
       !Array.isArray(textInput?.text_elements) ||
-      textInput.text_elements.length !== 0
+      textInput.text_elements.length !== 0 ||
+      imageInput?.type !== 'localImage' ||
+      imageInput?.path !== '/workspace/fixture.png' ||
+      fileReferenceInput?.type !== 'text' ||
+      fileReferenceInput?.text !== 'Referenced file: /workspace/AGENTS.md' ||
+      JSON.stringify(fileReferenceInput?.text_elements) !== JSON.stringify([
+        { byteRange: { start: 17, end: 37 }, placeholder: '@AGENTS.md' }
+      ]) ||
+      skillInput?.type !== 'skill' ||
+      skillInput?.name !== 'review' ||
+      skillInput?.path !== '/skills/review/SKILL.md'
     ) {
       send({ id: message.id, error: { code: -32602, message: 'Unexpected turn/start params' } });
     } else {
@@ -108,7 +139,16 @@ lines.on('line', (line) => {
         type: 'userMessage',
         id: 'user-live',
         clientId: 'client-message-1',
-        content: [{ type: 'text', text: 'Continue the fixture', text_elements: [] }]
+        content: [
+          { type: 'text', text: 'Continue the fixture', text_elements: [] },
+          { type: 'localImage', path: '/workspace/fixture.png' },
+          {
+            type: 'text',
+            text: 'Referenced file: /workspace/AGENTS.md',
+            text_elements: [{ byteRange: { start: 17, end: 37 }, placeholder: '@AGENTS.md' }]
+          },
+          { type: 'skill', name: 'review', path: '/skills/review/SKILL.md' }
+        ]
       };
       const startedAgentItem = {
         type: 'agentMessage',

@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { basename, extname, isAbsolute, normalize } from 'node:path';
 import * as vscode from 'vscode';
 import type { AppServerNotification, AppServerRequest } from '../codex/appServerClient';
 import {
@@ -30,6 +31,7 @@ import {
   loadConversationModelCatalog,
   visibleConversationModels,
   type ConversationRuntimeSettings,
+  type ConversationAdditionalInput,
   type ConversationSessionClient,
   type ConversationSessionSnapshot
 } from '../conversation/conversationSession';
@@ -37,6 +39,7 @@ import {
   isThreadsWebviewMessage,
   restoreThreadsWebviewState,
   type ConversationExecutionViewModel,
+  type ConversationAttachmentViewModel,
   type ConversationOperation,
   type ConversationScreenState,
   type ThreadListAction,
@@ -67,8 +70,53 @@ export interface ThreadListWebviewProviderOptions {
   readonly readConversationConfig?: (cwd: string) => Promise<ConversationConfigDefaults>;
   readonly onConversationCreated?: (thread: Thread) => void;
   readonly respondToServerRequest?: (id: AppServerRequest['id'], result: unknown) => Promise<boolean>;
+  readonly pickLocalImages?: () => Promise<readonly PickedLocalImage[]>;
+  readonly pickMentionFiles?: () => Promise<readonly PickedMentionFile[]>;
+  readonly pickSkills?: (cwd: string) => Promise<readonly PickedSkill[]>;
   readonly logger: ThreadListWebviewLogger;
 }
+
+export interface PickedLocalImage {
+  readonly path: string;
+  readonly sizeBytes: number;
+}
+
+export interface PickedMentionFile {
+  readonly path: string;
+  readonly sizeBytes: number;
+}
+
+export interface PickedSkill {
+  readonly name: string;
+  readonly path: string;
+  readonly description: string;
+}
+
+interface LocalImageAttachment {
+  readonly id: string;
+  readonly kind: 'localImage';
+  readonly name: string;
+  readonly path: string;
+  readonly sizeBytes: number;
+}
+
+interface MentionAttachment {
+  readonly id: string;
+  readonly kind: 'mention';
+  readonly name: string;
+  readonly path: string;
+  readonly sizeBytes: number;
+}
+
+interface SkillAttachment {
+  readonly id: string;
+  readonly kind: 'skill';
+  readonly name: string;
+  readonly path: string;
+  readonly description: string;
+}
+
+type ConversationAttachment = LocalImageAttachment | MentionAttachment | SkillAttachment;
 
 interface PendingConversationLoad {
   readonly generation: number;
@@ -99,6 +147,7 @@ interface NewConversationDraft {
   runtimeLoadVersion: number;
   createPending: boolean;
   createdThread: Thread | undefined;
+  readonly attachments: ConversationAttachment[];
   readonly notifications: ConversationNotification[];
   overflowed: boolean;
   malformed: boolean;
@@ -106,6 +155,12 @@ interface NewConversationDraft {
 
 const MAX_BUFFERED_CONVERSATION_NOTIFICATIONS = 512;
 const CONVERSATION_POST_INTERVAL_MS = 16;
+const MAX_LOCAL_IMAGE_ATTACHMENTS = 10;
+const MAX_LOCAL_IMAGE_SIZE_BYTES = 20 * 1024 * 1024;
+const MAX_MENTION_ATTACHMENTS = 20;
+const MAX_MENTION_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_SKILL_ATTACHMENTS = 10;
+const LOCAL_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
 
 export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | undefined;
@@ -131,6 +186,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
   private viewReady = false;
   private generation = 0;
   private conversationViewRevision = 0;
+  private conversationAttachments: ConversationAttachment[] = [];
   private disposed = false;
 
   public constructor(private readonly options: ThreadListWebviewProviderOptions) {}
@@ -209,6 +265,18 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
             return;
           case 'threads/conversation/settings':
             this.updateConversationSettings(message.sessionId, message.threadId, message.settings);
+            return;
+          case 'threads/conversation/attachment/addImage':
+            this.addLocalImages(message.sessionId, message.threadId);
+            return;
+          case 'threads/conversation/attachment/addMention':
+            this.addMentionFiles(message.sessionId, message.threadId);
+            return;
+          case 'threads/conversation/attachment/addSkill':
+            this.addSkills(message.sessionId, message.threadId);
+            return;
+          case 'threads/conversation/attachment/remove':
+            this.removeAttachment(message.sessionId, message.threadId, message.attachmentId);
             return;
           case 'threads/conversation/interaction':
             this.respondToInteraction(
@@ -554,6 +622,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
       runtimeLoadVersion: 0,
       createPending: false,
       createdThread: undefined,
+      attachments: [],
       notifications: [],
       overflowed: false,
       malformed: false
@@ -728,13 +797,33 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
       return;
     }
 
+    if (
+      operation === 'send' &&
+      this.conversationAttachments.some((attachment) => attachment.kind === 'localImage') &&
+      !session.supportsImageInput()
+    ) {
+      this.post({
+        type: 'threads/conversationOperationResult',
+        sessionId,
+        threadId,
+        requestId,
+        operation,
+        outcome: 'rejected',
+        message: 'The selected model does not support image input. Remove the images or choose an image-capable model.'
+      });
+      return;
+    }
+
     const generation = this.generation;
     const result = operation === 'send'
-      ? session.send(text ?? '')
+      ? session.send(text ?? '', this.conversationAttachments.map(toAdditionalInput))
       : session.stop();
     void result.then((accepted) => {
       if (!this.isCurrentConversation(generation, threadId, sessionId)) {
         return;
+      }
+      if (operation === 'send' && accepted) {
+        this.conversationAttachments = [];
       }
       this.flushConversationStatePost();
       this.post(accepted
@@ -812,11 +901,259 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     }
   }
 
+  private addLocalImages(sessionId: string, threadId: string): void {
+    const draft = this.newConversationDraft;
+    const session = this.conversationSession;
+    const isDraft = Boolean(draft?.sessionId === sessionId && draft.draftId === threadId);
+    const isExisting = Boolean(session && this.isCurrentSession(sessionId, threadId));
+    const available = isDraft
+      ? Boolean(draft && !draft.createPending && draftSupportsImageInput(draft))
+      : Boolean(isExisting && session?.snapshot().operation === 'idle' && session.supportsImageInput());
+    if (!available) {
+      this.options.logger.appendLine('[threads] Ignored an unavailable local image request.');
+      return;
+    }
+
+    const generation = this.generation;
+    const picker = this.options.pickLocalImages ?? pickLocalImages;
+    void picker().then((picked) => {
+      if (
+        generation !== this.generation ||
+        !this.isCurrentSession(sessionId, threadId) ||
+        (isDraft
+          ? !draft || draft.createPending || !draftSupportsImageInput(draft)
+          : !session || session.snapshot().operation !== 'idle' || !session.supportsImageInput())
+      ) return;
+      const attachments = isDraft ? draft?.attachments : this.conversationAttachments;
+      if (!attachments) return;
+      const initialCount = attachments.length;
+      let rejected = false;
+      for (const image of picked) {
+        if (attachments.filter((attachment) => attachment.kind === 'localImage').length >= MAX_LOCAL_IMAGE_ATTACHMENTS) {
+          rejected = true;
+          break;
+        }
+        const validated = validatePickedLocalImage(image);
+        if (!validated) {
+          rejected = true;
+          continue;
+        }
+        const key = localPathKey(validated.path);
+        if (attachments.some((attachment) => localPathKey(attachment.path) === key)) {
+          continue;
+        }
+        attachments.push({ id: randomUUID(), kind: 'localImage', ...validated });
+      }
+      if (rejected) {
+        void vscode.window.showWarningMessage(
+          `Some images were not added. Use PNG, JPEG, GIF, or WebP files up to 20 MB (maximum ${MAX_LOCAL_IMAGE_ATTACHMENTS} images).`
+        );
+      }
+      if (attachments.length !== initialCount) {
+        this.postAttachmentState(isDraft ? draft : undefined);
+      }
+    }, () => {
+      if (generation === this.generation) {
+        this.options.logger.appendLine('[threads] The local image picker could not be opened.');
+      }
+    });
+  }
+
+  private addMentionFiles(sessionId: string, threadId: string): void {
+    const draft = this.newConversationDraft;
+    const session = this.conversationSession;
+    const isDraft = Boolean(draft?.sessionId === sessionId && draft.draftId === threadId);
+    const available = isDraft
+      ? Boolean(draft && !draft.createPending)
+      : Boolean(session && this.isCurrentSession(sessionId, threadId) && session.snapshot().operation === 'idle');
+    if (!available) {
+      this.options.logger.appendLine('[threads] Ignored an unavailable mention request.');
+      return;
+    }
+
+    const generation = this.generation;
+    const picker = this.options.pickMentionFiles ?? pickMentionFiles;
+    void picker().then((picked) => {
+      if (
+        generation !== this.generation ||
+        !this.isCurrentSession(sessionId, threadId) ||
+        (isDraft ? !draft || draft.createPending : !session || session.snapshot().operation !== 'idle')
+      ) return;
+      const attachments = isDraft ? draft?.attachments : this.conversationAttachments;
+      if (!attachments) return;
+      const initialCount = attachments.length;
+      let rejected = false;
+      for (const file of picked) {
+        if (attachments.filter((attachment) => attachment.kind === 'mention').length >= MAX_MENTION_ATTACHMENTS) {
+          rejected = true;
+          break;
+        }
+        const validated = validatePickedMention(file);
+        if (!validated) {
+          rejected = true;
+          continue;
+        }
+        const key = localPathKey(validated.path);
+        if (attachments.some((attachment) => attachment.kind === 'mention' && localPathKey(attachment.path) === key)) {
+          continue;
+        }
+        attachments.push({ id: randomUUID(), kind: 'mention', ...validated });
+      }
+      if (rejected) {
+        void vscode.window.showWarningMessage(
+          `Some files were not mentioned. Select regular files up to 10 MB (maximum ${MAX_MENTION_ATTACHMENTS} files).`
+        );
+      }
+      if (attachments.length !== initialCount) {
+        this.postAttachmentState(isDraft ? draft : undefined);
+      }
+    }, () => {
+      if (generation === this.generation) {
+        this.options.logger.appendLine('[threads] The mention picker could not be opened.');
+      }
+    });
+  }
+
+  private addSkills(sessionId: string, threadId: string): void {
+    const draft = this.newConversationDraft;
+    const session = this.conversationSession;
+    const isDraft = Boolean(draft?.sessionId === sessionId && draft.draftId === threadId);
+    const cwd = isDraft ? draft?.cwd : session?.snapshot().model.cwd;
+    const available = Boolean(
+      cwd &&
+      (this.options.pickSkills || this.options.conversationClient.listSkills) &&
+      (isDraft
+        ? draft && !draft.createPending
+        : session && this.isCurrentSession(sessionId, threadId) && session.snapshot().operation === 'idle')
+    );
+    if (!available || !cwd) {
+      this.options.logger.appendLine('[threads] Ignored an unavailable Skill request.');
+      return;
+    }
+
+    const generation = this.generation;
+    const picker = this.options.pickSkills ?? ((selectedCwd: string) => this.pickAvailableSkills(selectedCwd));
+    void picker(cwd).then((picked) => {
+      if (
+        generation !== this.generation ||
+        !this.isCurrentSession(sessionId, threadId) ||
+        (isDraft ? !draft || draft.createPending : !session || session.snapshot().operation !== 'idle')
+      ) return;
+      const attachments = isDraft ? draft?.attachments : this.conversationAttachments;
+      if (!attachments) return;
+      const initialCount = attachments.length;
+      let rejected = false;
+      for (const skill of picked) {
+        if (attachments.filter((attachment) => attachment.kind === 'skill').length >= MAX_SKILL_ATTACHMENTS) {
+          rejected = true;
+          break;
+        }
+        const validated = validatePickedSkill(skill);
+        if (!validated) {
+          rejected = true;
+          continue;
+        }
+        const key = localPathKey(validated.path);
+        if (attachments.some((attachment) => attachment.kind === 'skill' && localPathKey(attachment.path) === key)) {
+          continue;
+        }
+        attachments.push({ id: randomUUID(), kind: 'skill', ...validated });
+      }
+      if (rejected) {
+        void vscode.window.showWarningMessage(
+          `Some Skills were not added. Choose up to ${MAX_SKILL_ATTACHMENTS} valid enabled Skills.`
+        );
+      }
+      if (attachments.length !== initialCount) {
+        this.postAttachmentState(isDraft ? draft : undefined);
+      }
+    }, () => {
+      if (generation === this.generation) {
+        this.options.logger.appendLine('[threads] Available Skills could not be loaded.');
+        void vscode.window.showWarningMessage('Available Skills could not be loaded. Check the connection and try again.');
+      }
+    });
+  }
+
+  private async pickAvailableSkills(cwd: string): Promise<readonly PickedSkill[]> {
+    const client = this.options.conversationClient;
+    if (!client.listSkills) return [];
+    const response = await client.listSkills({ cwds: [cwd], forceReload: false });
+    const skills = response.data
+      .filter((entry) => entry.cwd === cwd)
+      .flatMap((entry) => entry.skills)
+      .filter((skill) => skill.enabled)
+      .sort((left, right) => left.name.localeCompare(right.name));
+    if (skills.length === 0) {
+      void vscode.window.showWarningMessage('No enabled Skills are available for this workspace.');
+      return [];
+    }
+    const items = skills.map((skill) => ({
+      label: `$${skill.name}`,
+      description: skill.scope,
+      detail: skill.shortDescription ?? skill.description,
+      skill
+    }));
+    const selected = await vscode.window.showQuickPick(items, {
+      canPickMany: true,
+      matchOnDescription: true,
+      matchOnDetail: true,
+      placeHolder: 'Choose Skills for the next message',
+      title: 'Add Skills to the conversation'
+    });
+    return selected?.map(({ skill }) => ({
+      name: skill.name,
+      path: skill.path,
+      description: skill.shortDescription ?? skill.description
+    })) ?? [];
+  }
+
+  private removeAttachment(sessionId: string, threadId: string, attachmentId: string): void {
+    if (!this.isCurrentSession(sessionId, threadId)) return;
+    const draft = this.newConversationDraft;
+    if (
+      draft?.sessionId === sessionId
+        ? draft.createPending
+        : this.conversationSession?.snapshot().operation !== 'idle'
+    ) return;
+    const attachments = draft?.sessionId === sessionId && draft.draftId === threadId
+      ? draft.attachments
+      : this.conversationAttachments;
+    const index = attachments.findIndex((attachment) => attachment.id === attachmentId);
+    if (index < 0) return;
+    attachments.splice(index, 1);
+    this.postAttachmentState(draft?.sessionId === sessionId ? draft : undefined);
+  }
+
+  private postAttachmentState(draft?: NewConversationDraft): void {
+    if (draft && this.isCurrentDraft(draft)) {
+      this.postNewConversationState(draft, draftExecution(draft));
+    } else {
+      this.postCurrentConversationState();
+    }
+  }
+
   private createNewConversation(
     draft: NewConversationDraft,
     requestId: string,
     text: string
   ): void {
+    if (
+      this.isCurrentDraft(draft) &&
+      draft.attachments.some((attachment) => attachment.kind === 'localImage') &&
+      !draftSupportsImageInput(draft)
+    ) {
+      this.post({
+        type: 'threads/conversationOperationResult',
+        sessionId: draft.sessionId,
+        threadId: draft.draftId,
+        requestId,
+        operation: 'send',
+        outcome: 'rejected',
+        message: 'The selected model does not support image input. Remove the images or choose an image-capable model.'
+      });
+      return;
+    }
     if (
       !this.options.startThread ||
       !text.trim() ||
@@ -850,7 +1187,10 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
         const response = await this.options.conversationClient.startTurn({
           threadId: started.thread.id,
           clientUserMessageId: randomUUID(),
-          input: [{ type: 'text', text, text_elements: [] }],
+          input: [
+            { type: 'text', text, text_elements: [] },
+            ...draft.attachments.map(toAdditionalInput)
+          ],
           model,
           serviceTier: draft.runtime.serviceTier,
           effort: draft.runtime.effort,
@@ -915,6 +1255,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     this.conversationSessions.set(thread.id, session);
     if (!this.isCurrentDraft(draft)) return;
 
+    this.conversationAttachments = turnStarted ? [] : [...draft.attachments];
     this.newConversationDraft = undefined;
     this.activeThread = { id: thread.id, title: conversationTitle(thread) };
     this.attachConversationSession(
@@ -1064,6 +1405,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
     this.conversationSession = undefined;
     this.conversationSessionId = undefined;
     this.newConversationDraft = undefined;
+    this.conversationAttachments = [];
     this.pendingConversationLoad = undefined;
     this.pendingConversationPost = undefined;
     if (this.conversationPostTimer !== undefined) {
@@ -1141,6 +1483,8 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
       },
       execution,
       runtime: draft.runtime,
+      availableAdditions: this.availableAdditions(draftSupportsImageInput(draft)),
+      attachments: draft.attachments.map(toAttachmentViewModel),
       interactions: [],
       ...(notice ? { notice } : {})
     };
@@ -1153,8 +1497,24 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
       [...this.interactions.values()]
         .filter((interaction) => interaction.threadId === snapshot.model.threadId)
         .map((interaction) => interaction.view),
-      ++this.conversationViewRevision
+      ++this.conversationViewRevision,
+      this.availableAdditions(Boolean(
+        snapshot.runtime.status === 'ready' && this.conversationSession?.supportsImageInput()
+      )),
+      this.conversationAttachments.map(toAttachmentViewModel)
     );
+  }
+
+  private availableAdditions(image: boolean): ConversationScreenState['availableAdditions'] {
+    return [
+      ...(image ? ['localImage' as const] : []),
+      'mention',
+      ...(
+        this.options.pickSkills || this.options.conversationClient.listSkills
+          ? ['skill' as const]
+          : []
+      )
+    ];
   }
 
   private disposeConversationSessions(): void {
@@ -1263,6 +1623,160 @@ function loadingRuntimeSettings(): ConversationRuntimeSettings {
   };
 }
 
+function draftSupportsImageInput(draft: NewConversationDraft): boolean {
+  if (draft.runtime.status !== 'ready' || !draft.runtime.model) return false;
+  const model = draft.models.find((candidate) => candidate.id === draft.runtime.model) ??
+    draft.models.find((candidate) => candidate.model === draft.runtime.model);
+  return Boolean(model?.inputModalities.includes('image'));
+}
+
+function draftExecution(draft: NewConversationDraft): ConversationExecutionViewModel {
+  if (draft.createPending) return { kind: 'starting' };
+  if (draft.runtime.status === 'loading') return { kind: 'resuming' };
+  if (draft.runtime.status === 'unavailable') {
+    return { kind: 'unavailable', message: draft.runtime.message ?? 'Conversation settings are unavailable.' };
+  }
+  return { kind: 'idle' };
+}
+
+function toAttachmentViewModel(attachment: ConversationAttachment): ConversationAttachmentViewModel {
+  switch (attachment.kind) {
+    case 'localImage':
+    case 'mention':
+      return {
+        id: attachment.id,
+        kind: attachment.kind,
+        name: attachment.name,
+        sizeBytes: attachment.sizeBytes
+      };
+    case 'skill':
+      return {
+        id: attachment.id,
+        kind: attachment.kind,
+        name: attachment.name,
+        description: attachment.description
+      };
+  }
+}
+
+function toAdditionalInput(attachment: ConversationAttachment): ConversationAdditionalInput {
+  switch (attachment.kind) {
+    case 'localImage': return { type: 'localImage', path: attachment.path };
+    case 'mention': return toFileReferenceInput(attachment);
+    case 'skill': return { type: 'skill', name: attachment.name, path: attachment.path };
+  }
+}
+
+function toFileReferenceInput(attachment: MentionAttachment): ConversationAdditionalInput {
+  const prefix = 'Referenced file: ';
+  const text = `${prefix}${attachment.path}`;
+  return {
+    type: 'text',
+    text,
+    text_elements: [{
+      byteRange: {
+        start: Buffer.byteLength(prefix, 'utf8'),
+        end: Buffer.byteLength(text, 'utf8')
+      },
+      placeholder: `@${attachment.name}`
+    }]
+  };
+}
+
+function validatePickedLocalImage(image: PickedLocalImage): Omit<LocalImageAttachment, 'id' | 'kind'> | undefined {
+  if (
+    !isAbsolute(image.path) ||
+    !Number.isSafeInteger(image.sizeBytes) ||
+    image.sizeBytes <= 0 ||
+    image.sizeBytes > MAX_LOCAL_IMAGE_SIZE_BYTES ||
+    !LOCAL_IMAGE_EXTENSIONS.has(extname(image.path).toLowerCase())
+  ) {
+    return undefined;
+  }
+  const path = normalize(image.path);
+  const name = basename(path);
+  if (!name || name.length > 255) return undefined;
+  return { path, name, sizeBytes: image.sizeBytes };
+}
+
+function validatePickedMention(file: PickedMentionFile): Omit<MentionAttachment, 'id' | 'kind'> | undefined {
+  if (
+    !isAbsolute(file.path) ||
+    !Number.isSafeInteger(file.sizeBytes) ||
+    file.sizeBytes <= 0 ||
+    file.sizeBytes > MAX_MENTION_FILE_SIZE_BYTES
+  ) return undefined;
+  const path = normalize(file.path);
+  const name = basename(path);
+  if (!name || name.length > 255) return undefined;
+  return { path, name, sizeBytes: file.sizeBytes };
+}
+
+function validatePickedSkill(skill: PickedSkill): Omit<SkillAttachment, 'id' | 'kind'> | undefined {
+  if (
+    !isAbsolute(skill.path) ||
+    !skill.name.trim() ||
+    skill.name.length > 255 ||
+    skill.description.length > 2_000
+  ) return undefined;
+  return {
+    name: skill.name,
+    path: normalize(skill.path),
+    description: skill.description
+  };
+}
+
+function localPathKey(path: string): string {
+  const normalized = normalize(path);
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+async function pickLocalImages(): Promise<readonly PickedLocalImage[]> {
+  const uris = await vscode.window.showOpenDialog({
+    canSelectFiles: true,
+    canSelectFolders: false,
+    canSelectMany: true,
+    title: 'Add images to the conversation',
+    filters: { Images: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }
+  });
+  if (!uris) return [];
+  return Promise.all(uris.slice(0, MAX_LOCAL_IMAGE_ATTACHMENTS + 1).map(async (uri) => {
+    if (uri.scheme !== 'file') return { path: uri.fsPath, sizeBytes: 0 };
+    try {
+      const stat = await vscode.workspace.fs.stat(uri);
+      return {
+        path: uri.fsPath,
+        sizeBytes: stat.type === vscode.FileType.File ? stat.size : 0
+      };
+    } catch {
+      return { path: uri.fsPath, sizeBytes: 0 };
+    }
+  }));
+}
+
+async function pickMentionFiles(): Promise<readonly PickedMentionFile[]> {
+  const uris = await vscode.window.showOpenDialog({
+    canSelectFiles: true,
+    canSelectFolders: false,
+    canSelectMany: true,
+    title: 'Mention files in the conversation',
+    openLabel: 'Mention'
+  });
+  if (!uris) return [];
+  return Promise.all(uris.slice(0, MAX_MENTION_ATTACHMENTS + 1).map(async (uri) => {
+    if (uri.scheme !== 'file') return { path: uri.fsPath, sizeBytes: 0 };
+    try {
+      const stat = await vscode.workspace.fs.stat(uri);
+      return {
+        path: uri.fsPath,
+        sizeBytes: stat.type === vscode.FileType.File ? stat.size : 0
+      };
+    } catch {
+      return { path: uri.fsPath, sizeBytes: 0 };
+    }
+  }));
+}
+
 function conversationTitle(thread: Thread): string {
   const title = thread.name?.trim() || thread.preview.split(/\r?\n/u, 1)[0]?.trim();
   return title || 'New conversation';
@@ -1272,7 +1786,9 @@ function toConversationScreenState(
   sessionId: string,
   snapshot: ConversationSessionSnapshot,
   interactions: ConversationScreenState['interactions'],
-  revision: number
+  revision: number,
+  availableAdditions: ConversationScreenState['availableAdditions'],
+  attachments: ConversationScreenState['attachments']
 ): ConversationScreenState {
   const execution = toConversationExecution(snapshot);
   return snapshot.notice
@@ -1282,6 +1798,8 @@ function toConversationScreenState(
       model: snapshot.model,
       execution,
       runtime: snapshot.runtime,
+      availableAdditions,
+      attachments,
       interactions,
       notice: snapshot.notice
     }
@@ -1291,6 +1809,8 @@ function toConversationScreenState(
       model: snapshot.model,
       execution,
       runtime: snapshot.runtime,
+      availableAdditions,
+      attachments,
       interactions
     };
 }

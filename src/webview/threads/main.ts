@@ -49,6 +49,7 @@ interface ConversationComposerTarget {
   readonly announcer: HTMLElement;
   readonly add: HTMLButtonElement;
   readonly addMenu: HTMLElement;
+  readonly attachments: HTMLElement;
   readonly settings: HTMLDetailsElement;
   readonly settingsSummary: HTMLElement;
   readonly settingsCurrent: HTMLElement;
@@ -142,6 +143,22 @@ app.addEventListener('click', (event) => {
     toggleAddMenu();
     return;
   }
+  if (action === 'add-image') {
+    addConversationInput('localImage');
+    return;
+  }
+  if (action === 'add-mention') {
+    addConversationInput('mention');
+    return;
+  }
+  if (action === 'add-skill') {
+    addConversationInput('skill');
+    return;
+  }
+  if (action === 'remove-attachment') {
+    removeAttachment(element.dataset.attachmentId);
+    return;
+  }
   if (action?.startsWith('interaction-')) {
     submitInteraction(element, action.slice('interaction-'.length));
     return;
@@ -175,6 +192,15 @@ document.addEventListener('click', (event) => {
   ) {
     target.settings.open = false;
   }
+  if (
+    target &&
+    !target.addMenu.hidden &&
+    event.target instanceof Node &&
+    !target.addMenu.contains(event.target) &&
+    event.target !== target.add
+  ) {
+    closeAddMenu(false);
+  }
 });
 
 app.addEventListener('keydown', (event) => {
@@ -185,6 +211,12 @@ app.addEventListener('keydown', (event) => {
     event.preventDefault();
     event.stopPropagation();
     closeRuntimeSettings(true);
+    return;
+  }
+  if (event.key === 'Escape' && conversationComposerTarget && !conversationComposerTarget.addMenu.hidden) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeAddMenu(true);
     return;
   }
   if (
@@ -566,9 +598,6 @@ function showConversationShell(
   addMenu.className = 'conversation-add-menu';
   addMenu.setAttribute('role', 'menu');
   addMenu.hidden = true;
-  const addEmpty = document.createElement('p');
-  addEmpty.textContent = 'No additional context inputs are available yet.';
-  addMenu.append(addEmpty);
   addWrap.append(add, addMenu);
 
   const settings = document.createElement('details');
@@ -610,6 +639,9 @@ function showConversationShell(
   settingsMenu.append(settingsGrid, advanced, settingsHint);
   settings.append(settingsSummary, settingsMenu);
   tools.append(addWrap, settings);
+  const attachments = document.createElement('div');
+  attachments.className = 'conversation-attachments';
+  attachments.setAttribute('aria-label', 'Attachments for the next message');
   const inputLabel = document.createElement('label');
   inputLabel.className = 'sr-only';
   inputLabel.htmlFor = 'conversation-composer-input';
@@ -647,14 +679,14 @@ function showConversationShell(
   send.title = 'Send (Ctrl/Cmd+Enter)';
   controls.append(stop, send);
   footer.append(status, controls);
-  composer.append(tools, inputLabel, input, error, footer);
+  composer.append(tools, attachments, inputLabel, input, error, footer);
 
   section.append(header, notice, content, interactions, announcer, composer);
   app.append(section);
   conversationTarget = { title: titleElement, meta, notice, content };
   conversationComposerTarget = {
     container: composer, input, send, stop, status, error, announcer,
-    add, addMenu, settings, settingsSummary, settingsCurrent,
+    add, addMenu, attachments, settings, settingsSummary, settingsCurrent,
     model: model.select,
     effort: effort.select,
     serviceTier: serviceTier.select,
@@ -803,6 +835,45 @@ function submitConversation(): void {
   });
 }
 
+function addConversationInput(kind: 'localImage' | 'mention' | 'skill'): void {
+  const state = conversationScreenState;
+  const sessionId = conversationSessionId;
+  const threadId = conversationThreadId;
+  if (
+    !state || !sessionId || !threadId ||
+    state.execution.kind !== 'idle' ||
+    !state.availableAdditions.includes(kind) ||
+    pendingConversationSend
+  ) return;
+  closeAddMenu(false);
+  vscode.postMessage({
+    type: kind === 'localImage'
+      ? 'threads/conversation/attachment/addImage'
+      : kind === 'mention'
+        ? 'threads/conversation/attachment/addMention'
+        : 'threads/conversation/attachment/addSkill',
+    sessionId,
+    threadId
+  });
+}
+
+function removeAttachment(attachmentId: string | undefined): void {
+  const state = conversationScreenState;
+  const sessionId = conversationSessionId;
+  const threadId = conversationThreadId;
+  if (
+    !attachmentId || !state || !sessionId || !threadId ||
+    state.execution.kind !== 'idle' || pendingConversationSend ||
+    !state.attachments.some((attachment) => attachment.id === attachmentId)
+  ) return;
+  vscode.postMessage({
+    type: 'threads/conversation/attachment/remove',
+    sessionId,
+    threadId,
+    attachmentId
+  });
+}
+
 function stopConversation(): void {
   const state = conversationScreenState;
   const sessionId = conversationSessionId;
@@ -882,11 +953,16 @@ function updateConversationComposer(): void {
   const unavailable = execution?.kind === 'unavailable';
   const waitingForInput = Boolean(conversationScreenState?.interactions.length);
   renderRuntimeSettings(target);
+  renderConversationAdditions(target);
   target.input.disabled = !hasState || unavailable || waitingForInput;
   target.input.readOnly = Boolean(pendingConversationSend);
   const canSend = Boolean(
     execution?.kind === 'idle' && !waitingForInput &&
     !pendingConversationSend &&
+    (
+      !conversationScreenState?.attachments.some((attachment) => attachment.kind === 'localImage') ||
+      conversationScreenState.availableAdditions.includes('localImage')
+    ) &&
     isValidComposerText(target.input.value)
   );
   target.send.disabled = !hasState || unavailable;
@@ -923,6 +999,69 @@ function updateConversationComposer(): void {
   if (moveFocusFromStop) {
     requestAnimationFrame(() => focusAfterConversationStop(target));
   }
+}
+
+function renderConversationAdditions(target: ConversationComposerTarget): void {
+  const state = conversationScreenState;
+  const additions = state?.availableAdditions ?? [];
+  const idle = state?.execution.kind === 'idle' && !pendingConversationSend;
+  target.add.disabled = additions.length === 0 || !idle;
+  target.add.title = additions.length > 0
+    ? 'Add context to the next message'
+    : 'No additional inputs are available.';
+  if (target.add.disabled) closeAddMenu(false);
+
+  const menuItems: HTMLElement[] = [];
+  if (additions.includes('localImage')) {
+    const image = actionButton('Add image…', 'add-image');
+    image.setAttribute('role', 'menuitem');
+    image.disabled = !idle;
+    menuItems.push(image);
+  }
+  if (additions.includes('mention')) {
+    const mention = actionButton('Mention files…', 'add-mention');
+    mention.setAttribute('role', 'menuitem');
+    mention.disabled = !idle;
+    menuItems.push(mention);
+  }
+  if (additions.includes('skill')) {
+    const skill = actionButton('Add Skill…', 'add-skill');
+    skill.setAttribute('role', 'menuitem');
+    skill.disabled = !idle;
+    menuItems.push(skill);
+  }
+  if (menuItems.length === 0) {
+    const empty = document.createElement('p');
+    empty.textContent = 'No additional inputs are available for this model.';
+    menuItems.push(empty);
+  }
+  target.addMenu.replaceChildren(...menuItems);
+
+  const attachments = (state?.attachments ?? []).map((attachment) => {
+    const chip = document.createElement('div');
+    chip.className = 'conversation-attachment';
+    const label = document.createElement('span');
+    label.className = 'conversation-attachment-label';
+    label.textContent = attachment.kind === 'skill'
+      ? `$${attachment.name}`
+      : `${attachment.kind === 'mention' ? '@' : ''}${attachment.name} · ${formatAttachmentSize(attachment.sizeBytes)}`;
+    if (attachment.kind === 'skill' && attachment.description) chip.title = attachment.description;
+    const remove = actionButton('×', 'remove-attachment');
+    remove.dataset.attachmentId = attachment.id;
+    remove.className = 'conversation-attachment-remove';
+    remove.setAttribute('aria-label', `Remove ${attachment.name}`);
+    remove.disabled = !idle;
+    chip.append(label, remove);
+    return chip;
+  });
+  target.attachments.replaceChildren(...attachments);
+  target.attachments.hidden = attachments.length === 0;
+}
+
+function formatAttachmentSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${Math.ceil(sizeBytes / 1024)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function renderConversationInteractions(
@@ -1224,10 +1363,21 @@ function runtimePermissionPreset(
 
 function toggleAddMenu(): void {
   const target = conversationComposerTarget;
-  if (!target) return;
+  if (!target || target.add.disabled) return;
   target.addMenu.hidden = !target.addMenu.hidden;
   target.add.setAttribute('aria-expanded', String(!target.addMenu.hidden));
-  if (!target.addMenu.hidden) target.settings.open = false;
+  if (!target.addMenu.hidden) {
+    target.settings.open = false;
+    target.addMenu.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true });
+  }
+}
+
+function closeAddMenu(restoreFocus: boolean): void {
+  const target = conversationComposerTarget;
+  if (!target) return;
+  target.addMenu.hidden = true;
+  target.add.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) target.add.focus({ preventScroll: true });
 }
 
 function closeRuntimeSettings(restoreFocus: boolean): void {
@@ -1523,6 +1673,7 @@ function requireConversationTarget(): ConversationRenderTarget {
 function actionButton(
   label: string,
   action: ThreadListAction | 'new' | 'open' | 'back' | 'reload' | 'send' | 'stop' | 'add' |
+    'add-image' | 'add-mention' | 'add-skill' | 'remove-attachment' |
     'interaction-accept' | 'interaction-session' | 'interaction-decline' | 'interaction-cancel',
   threadId?: string
 ): HTMLButtonElement {

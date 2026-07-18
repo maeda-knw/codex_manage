@@ -50,6 +50,12 @@ const conversationState = {
     approvalsReviewer: 'user',
     message: null
   },
+  availableAdditions: ['localImage', 'mention', 'skill'],
+  attachments: [
+    { id: 'attachment-1', kind: 'localImage', name: 'diagram.png', sizeBytes: 1024 },
+    { id: 'attachment-2', kind: 'mention', name: 'AGENTS.md', sizeBytes: 2048 },
+    { id: 'attachment-3', kind: 'skill', name: 'review', description: 'Review changes' }
+  ],
   interactions: []
 } as const;
 
@@ -95,6 +101,33 @@ test('accepts bounded composer actions and rejects arbitrary conversation payloa
     requestId: 'request-1',
     text: 'Continue this thread'
   }), true);
+  assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/attachment/addImage',
+    sessionId: 'session-1',
+    threadId: 'thread-1'
+  }), true);
+  assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/attachment/addMention',
+    sessionId: 'session-1',
+    threadId: 'thread-1'
+  }), true);
+  assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/attachment/addSkill',
+    sessionId: 'session-1',
+    threadId: 'thread-1'
+  }), true);
+  assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/attachment/remove',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    attachmentId: 'attachment-1'
+  }), true);
+  assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/attachment/addImage',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    path: '/private/image.png'
+  }), false);
   assert.equal(isThreadsWebviewMessage({
     type: 'threads/conversation/settings',
     sessionId: 'session-1',
@@ -248,6 +281,19 @@ test('validates persisted navigation state and host messages', () => {
   assert.equal(isThreadsHostMessage({
     type: 'threads/conversationState',
     state: { ...conversationState, revision: -1 }
+  }), false);
+  assert.equal(isThreadsHostMessage({
+    type: 'threads/conversationState',
+    state: {
+      ...conversationState,
+      attachments: [{
+        id: 'attachment-unsafe',
+        kind: 'skill',
+        name: 'review',
+        description: 'Review changes',
+        path: '/private/SKILL.md'
+      }]
+    }
   }), false);
   assert.equal(isThreadsHostMessage({
     type: 'threads/conversationState',

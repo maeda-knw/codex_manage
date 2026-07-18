@@ -441,6 +441,69 @@ button.conversation-add,
 
 .conversation-add-menu p { margin: 0; }
 
+.conversation-add-menu button[role='menuitem'] {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+}
+
+.conversation-add-menu button[role='menuitem']:hover,
+.conversation-add-menu button[role='menuitem']:focus-visible {
+  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+  outline: none;
+}
+
+.conversation-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0 0 7px;
+}
+
+.conversation-attachment {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 7px;
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+  border-radius: 999px;
+  font-size: 0.76rem;
+}
+
+.conversation-attachment-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.conversation-attachment-remove {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: inherit;
+  line-height: 18px;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+}
+
+button.conversation-attachment-remove:hover:not(:disabled),
+button.conversation-attachment-remove:focus-visible {
+  background: var(--vscode-toolbar-hoverBackground);
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
 .conversation-runtime-settings { position: relative; min-width: 0; text-align: right; }
 .conversation-runtime-settings.is-unavailable { opacity: 0.7; }
 
