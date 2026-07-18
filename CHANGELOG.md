@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added pinned Node.js/npm toolchain metadata, cache-first dependency bootstrap commands, and a dependency doctor that rejects partial npm extractions.
+- Added explicit npm install-script decisions so only the required esbuild setup script is allowed during dependency installation.
 - Added in-conversation command, file-change, and permission approval cards with one-time and session-scoped decisions.
 - Added typed responses for Codex follow-up questions and supported MCP form elicitations.
 - Added host-owned request correlation, stale-thread isolation, safe cancellation, and duplicate-response prevention for App Server requests.
