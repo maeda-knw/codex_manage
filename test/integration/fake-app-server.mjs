@@ -112,7 +112,7 @@ lines.on('line', (line) => {
   } else if (message.method === 'turn/start' && mode === 'conversation-live') {
     const textInput = message.params?.input?.[0];
     const imageInput = message.params?.input?.[1];
-    const mentionInput = message.params?.input?.[2];
+    const fileReferenceInput = message.params?.input?.[2];
     const skillInput = message.params?.input?.[3];
     if (
       message.params?.threadId !== 'thread-1' ||
@@ -123,9 +123,11 @@ lines.on('line', (line) => {
       textInput.text_elements.length !== 0 ||
       imageInput?.type !== 'localImage' ||
       imageInput?.path !== '/workspace/fixture.png' ||
-      mentionInput?.type !== 'mention' ||
-      mentionInput?.name !== 'AGENTS.md' ||
-      mentionInput?.path !== '/workspace/AGENTS.md' ||
+      fileReferenceInput?.type !== 'text' ||
+      fileReferenceInput?.text !== 'Referenced file: /workspace/AGENTS.md' ||
+      JSON.stringify(fileReferenceInput?.text_elements) !== JSON.stringify([
+        { byteRange: { start: 17, end: 37 }, placeholder: '@AGENTS.md' }
+      ]) ||
       skillInput?.type !== 'skill' ||
       skillInput?.name !== 'review' ||
       skillInput?.path !== '/skills/review/SKILL.md'
@@ -140,7 +142,11 @@ lines.on('line', (line) => {
         content: [
           { type: 'text', text: 'Continue the fixture', text_elements: [] },
           { type: 'localImage', path: '/workspace/fixture.png' },
-          { type: 'mention', name: 'AGENTS.md', path: '/workspace/AGENTS.md' },
+          {
+            type: 'text',
+            text: 'Referenced file: /workspace/AGENTS.md',
+            text_elements: [{ byteRange: { start: 17, end: 37 }, placeholder: '@AGENTS.md' }]
+          },
           { type: 'skill', name: 'review', path: '/skills/review/SKILL.md' }
         ]
       };

@@ -431,7 +431,7 @@ test('selects, deduplicates, removes, and restores local images without exposing
   assert.equal(result?.outcome, 'rejected');
 });
 
-test('adds host-selected mentions and Skills and restores them after a failed first turn', async (t) => {
+test('adds host-selected file references and Skills and restores them after a failed first turn', async (t) => {
   setWorkspace();
   const turnStarts: unknown[] = [];
   const client: ConversationSessionClient = {
@@ -509,7 +509,11 @@ test('adds host-selected mentions and Skills and restores them after a failed fi
   await flushPromises();
   assert.deepEqual((turnStarts[0] as { input: unknown }).input, [
     { type: 'text', text: 'Use this context', text_elements: [] },
-    { type: 'mention', name: 'AGENTS.md', path: '/workspace/AGENTS.md' },
+    {
+      type: 'text',
+      text: 'Referenced file: /workspace/AGENTS.md',
+      text_elements: [{ byteRange: { start: 17, end: 37 }, placeholder: '@AGENTS.md' }]
+    },
     { type: 'skill', name: 'review', path: '/skills/review/SKILL.md' }
   ]);
   const transition = [...view.webview.postedMessages].reverse().find(

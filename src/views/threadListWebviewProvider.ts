@@ -1662,9 +1662,25 @@ function toAttachmentViewModel(attachment: ConversationAttachment): Conversation
 function toAdditionalInput(attachment: ConversationAttachment): ConversationAdditionalInput {
   switch (attachment.kind) {
     case 'localImage': return { type: 'localImage', path: attachment.path };
-    case 'mention': return { type: 'mention', name: attachment.name, path: attachment.path };
+    case 'mention': return toFileReferenceInput(attachment);
     case 'skill': return { type: 'skill', name: attachment.name, path: attachment.path };
   }
+}
+
+function toFileReferenceInput(attachment: MentionAttachment): ConversationAdditionalInput {
+  const prefix = 'Referenced file: ';
+  const text = `${prefix}${attachment.path}`;
+  return {
+    type: 'text',
+    text,
+    text_elements: [{
+      byteRange: {
+        start: Buffer.byteLength(prefix, 'utf8'),
+        end: Buffer.byteLength(text, 'utf8')
+      },
+      placeholder: `@${attachment.name}`
+    }]
+  };
 }
 
 function validatePickedLocalImage(image: PickedLocalImage): Omit<LocalImageAttachment, 'id' | 'kind'> | undefined {

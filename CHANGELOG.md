@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Added capability-aware local images, host-selected file mentions, and enabled workspace Skills from the composer Add menu, including removable pre-send chips, format/size limits, duplicate suppression, path redaction, and failure restoration.
+- Added capability-aware local images, host-selected file references, and enabled workspace Skills from the composer Add menu, including removable pre-send chips, format/size limits, duplicate suppression, path redaction, and failure restoration. File references use explicit text with display placeholders because structured `mention` inputs represent apps, connectors, and plugins rather than filesystem paths.
 
 - GitHub Actions CI is now manual-only and no longer runs automatically for pushes or pull requests.
 

@@ -100,7 +100,7 @@ export type ConversationSessionListener = (snapshot: ConversationSessionSnapshot
 
 export type ConversationAdditionalInput = Extract<
   UserInput,
-  { readonly type: 'localImage' | 'mention' | 'skill' }
+  { readonly type: 'text' | 'localImage' | 'mention' | 'skill' }
 >;
 
 export class ConversationSession {

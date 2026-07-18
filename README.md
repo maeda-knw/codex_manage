@@ -14,7 +14,7 @@ The MVP is packaged for private VSIX installation. Marketplace publication is no
 - Updates names, archive state, and execution status from App Server notifications.
 - Opens a selected thread's conversation in the same Codex sidebar, including stored user/Codex messages, turn state, and summarized work cards.
 - Sends text prompts to an existing thread, streams Codex replies in place, and stops the active turn when needed.
-- Adds PNG, JPEG, GIF, or WebP images, file mentions, and enabled workspace Skills to the next message from the composer Add menu.
+- Adds PNG, JPEG, GIF, or WebP images, host-selected file references, and enabled workspace Skills to the next message from the composer Add menu.
 - Starts a workspace-scoped conversation from the sidebar, applies the selected Runtime settings, and sends its first text prompt without creating a duplicate list entry.
 - Shows a compact summary in the Runtime trigger with the GPT version and variant, effective reasoning, Fast speed when selected, and non-standard sandbox permissions.
 - Keeps the last confirmed transcript visible across disconnects and re-synchronizes it with `thread/resume` plus `thread/read` after reconnecting.
@@ -132,7 +132,7 @@ The local list remains unchanged when the App Server rejects an operation. Revie
 
 ## Limitations
 
-- Text, local-image, file mention, and enabled Skill inputs are supported for existing and newly created threads. Remote image URLs and arbitrary paths entered by the Webview are not supported.
+- Text, local-image, host-selected file-reference, and enabled Skill inputs are supported for existing and newly created threads. File references are sent as explicit text with a display placeholder because structured `mention` inputs are reserved for apps, connectors, and plugins. Remote image URLs and arbitrary paths entered by the Webview are not supported.
 - Command, file-change, and permission approvals plus Codex follow-up questions are supported. Unsupported App Server request types are still rejected rather than approved implicitly.
 - Standard MCP form elicitations support strings, numbers, booleans, and single-select enums; OpenAI-specific forms, multi-select enums, and URL-mode elicitations can only be declined or cancelled.
 - Raw reasoning content, command output, file diffs, and tool arguments/results are intentionally not displayed.

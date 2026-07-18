@@ -176,7 +176,11 @@ test('lists Skills, starts a turn with every supported context input, streams, a
         text_elements: []
       },
       { type: 'localImage', path: '/workspace/fixture.png' },
-      { type: 'mention', name: 'AGENTS.md', path: '/workspace/AGENTS.md' },
+      {
+        type: 'text',
+        text: 'Referenced file: /workspace/AGENTS.md',
+        text_elements: [{ byteRange: { start: 17, end: 37 }, placeholder: '@AGENTS.md' }]
+      },
       { type: 'skill', name: 'review', path: '/skills/review/SKILL.md' }
     ]
   });

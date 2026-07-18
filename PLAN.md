@@ -1,7 +1,7 @@
 # Codex Thread Manager for VS Code 実装計画書
 
 - 作成日: 2026-07-14
-- 状態: vNext Phase D 手動受け入れ確認保留／Phase E.4 完了（画像・mention・Skill 入力）
+- 状態: vNext Phase D 手動受け入れ確認保留／Phase E.4 完了（画像・ファイル参照・Skill 入力）
 - 仮称: `Codex Thread Manager`
 - 調査環境: Windows / Codex CLI `0.142.3`
 
@@ -901,9 +901,9 @@ Phase E は次の原則で進める。
 - 同一パスの重複を除外し、非対応形式、空ファイル、サイズ超過、上限超過を拒否するようにした。キャンセル時は composer の状態を変更しない。
 - テキストの直後へ `localImage` 入力を付けて既存スレッドと新規スレッドの `turn/start` へ渡すようにした。送信成功時だけ選択を消去し、送信失敗時と新規 thread 作成後の初回 turn 失敗時は画像とテキストを保持する。
 - Webview プロトコル、ConversationSession、Provider、偽 App Server 統合テストへ capability、パス秘匿、重複、削除、形式・サイズ拒否、送信、失敗復元のケースを追加した。
-- `UserInput.mention` を追加し、Extension Host のファイル選択ダイアログから最大20件、1件10 MBまでの通常ファイルを選択できるようにした。選択済み項目は `@ファイル名` とサイズだけを表示し、実パスは Host 内に保持する。
+- Extension Host のファイル選択ダイアログから最大20件、1件10 MBまでの通常ファイルを選択できるようにした。ファイルは実パスを含む明示的な `UserInput.text` と表示用 `text_elements` プレースホルダーで参照し、選択済み項目には `@ファイル名` とサイズ、履歴には `@ファイル名` だけを表示する。`UserInput.mention` はアプリ、コネクタ、プラグイン用のため、ファイル参照には使用しない。
 - `skills/list` のレスポンス境界を検証し、現在の workspace `cwd` で有効な Skill だけを Quick Pick へ表示して、最大10件の `UserInput.skill` を追加できるようにした。Webview へは Skill 名と説明だけを渡す。
-- 画像、mention、Skill を同じ turn へ順序どおり送信し、種類ごとの重複と上限を独立して管理するようにした。キャンセル、不正パス、サイズ超過、初回 turn 失敗後の復元、Webview へのパス非公開を自動テストへ追加した。
+- 画像、ファイル参照、Skill を同じ turn へ順序どおり送信し、種類ごとの重複と上限を独立して管理するようにした。キャンセル、不正パス、サイズ超過、初回 turn 失敗後の復元、Webview と履歴へのパス非公開を自動テストへ追加した。
 
 ### 16.6 Phase E.5: turn ブックマーク
 
