@@ -581,6 +581,125 @@ test('loads validated runtime choices and applies changed settings only to the n
   assert.equal((startParams[0] as { approvalPolicy?: unknown }).approvalPolicy, 'never');
 });
 
+test('switches every advertised model while preserving a granular approval policy', async () => {
+  const granularApproval = {
+    granular: {
+      sandbox_approval: true,
+      rules: false,
+      skill_approval: true,
+      request_permissions: true,
+      mcp_elicitations: false
+    }
+  } as const;
+  const baseModel: Model = {
+    id: 'gpt-5.6-sol',
+    model: 'gpt-5.6-sol',
+    upgrade: null,
+    upgradeInfo: null,
+    availabilityNux: null,
+    displayName: 'GPT-5.6-Sol',
+    description: 'Frontier',
+    hidden: false,
+    supportedReasoningEfforts: [
+      { reasoningEffort: 'low', description: 'Fast' },
+      { reasoningEffort: 'medium', description: 'Balanced' }
+    ],
+    defaultReasoningEffort: 'low',
+    inputModalities: ['text'],
+    supportsPersonality: false,
+    additionalSpeedTiers: ['fast'],
+    serviceTiers: [{ id: 'priority', name: 'Fast', description: 'Lower latency' }],
+    defaultServiceTier: null,
+    isDefault: true
+  };
+  const models: readonly Model[] = [
+    baseModel,
+    { ...baseModel, id: 'gpt-5.6-terra', model: 'gpt-5.6-terra', displayName: 'GPT-5.6-Terra', defaultReasoningEffort: 'medium', isDefault: false },
+    { ...baseModel, id: 'gpt-5.6-luna', model: 'gpt-5.6-luna', displayName: 'GPT-5.6-Luna', defaultReasoningEffort: 'medium', isDefault: false }
+  ];
+
+  for (const selectedModel of models) {
+    const resumeParams: unknown[] = [];
+    const startParams: unknown[] = [];
+    const client: ConversationSessionClient = {
+      ...passiveClient(),
+      listModels: async () => ({ data: [...models], nextCursor: null }),
+      resumeThread: async (params) => {
+        resumeParams.push(params);
+        return {
+          ...resumeResponse(createThread({ id: params.threadId })),
+          model: 'gpt-5.6-sol',
+          reasoningEffort: null,
+          approvalPolicy: granularApproval
+        };
+      },
+      startTurn: async (params) => {
+        startParams.push(params);
+        return { turn: liveTurn(`turn-${selectedModel.id}`) };
+      }
+    };
+    const session = new ConversationSession(client, createThread());
+
+    assert.equal(await session.loadRuntimeSettings(), true);
+    assert.equal(session.snapshot().runtime.approvalPolicy, 'custom');
+    assert.equal(session.updateRuntimeSettings({
+      model: selectedModel.id,
+      effort: null,
+      serviceTier: null,
+      sandbox: 'workspace-write',
+      approvalPolicy: 'custom'
+    }), true);
+    assert.equal(session.snapshot().runtime.defaultEffort, selectedModel.defaultReasoningEffort);
+    assert.equal(await session.send(`Use ${selectedModel.displayName}`), true);
+    assert.equal((resumeParams[1] as { model?: unknown }).model, selectedModel.model);
+    assert.deepEqual((resumeParams[1] as { approvalPolicy?: unknown }).approvalPolicy, granularApproval);
+    assert.equal((startParams[0] as { model?: unknown }).model, selectedModel.model);
+    assert.deepEqual((startParams[0] as { approvalPolicy?: unknown }).approvalPolicy, granularApproval);
+  }
+});
+
+test('keeps default and unlisted current runtime values meaningful instead of blank', async () => {
+  const model: Model = {
+    id: 'gpt-fixture',
+    model: 'gpt-fixture',
+    upgrade: null,
+    upgradeInfo: null,
+    availabilityNux: null,
+    displayName: 'GPT Fixture',
+    description: 'Fixture model',
+    hidden: false,
+    supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: 'Balanced' }],
+    defaultReasoningEffort: 'medium',
+    inputModalities: ['text'],
+    supportsPersonality: false,
+    additionalSpeedTiers: ['fast'],
+    serviceTiers: [{ id: 'priority', name: 'Fast', description: 'Lower latency' }],
+    defaultServiceTier: null,
+    isDefault: true
+  };
+  const client: ConversationSessionClient = {
+    ...passiveClient(),
+    listModels: async () => ({ data: [model], nextCursor: null }),
+    resumeThread: async (params) => ({
+      ...resumeResponse(createThread({ id: params.threadId })),
+      model: 'gpt-unlisted',
+      reasoningEffort: 'ultra',
+      serviceTier: 'legacy-fast'
+    })
+  };
+  const session = new ConversationSession(client, createThread());
+
+  assert.equal(await session.loadRuntimeSettings(), true);
+  const runtime = session.snapshot().runtime;
+  assert.equal(runtime.model, 'gpt-unlisted');
+  assert.match(runtime.models[0]?.label ?? '', /current, unlisted/iu);
+  assert.equal(runtime.effort, 'ultra');
+  assert.match(runtime.efforts[0]?.label ?? '', /current, unlisted/iu);
+  assert.equal(runtime.defaultEffort, null);
+  assert.equal(runtime.serviceTier, 'legacy-fast');
+  assert.match(runtime.serviceTiers[0]?.label ?? '', /current, unlisted/iu);
+});
+
 function passiveClient(): ConversationSessionClient {
   return {
     resumeThread: async (params) => resumeResponse(createThread({ id: params.threadId })),

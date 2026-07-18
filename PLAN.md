@@ -1,7 +1,7 @@
 # Codex Thread Manager for VS Code 実装計画書
 
 - 作成日: 2026-07-14
-- 状態: vNext Phase D 手動受け入れ確認保留／Phase E.1 完了（会話完了時の自動収束）
+- 状態: vNext Phase D 手動受け入れ確認保留／Phase E.2 完了（Runtime settings の整合性と可視性）
 - 仮称: `Codex Thread Manager`
 - 調査環境: Windows / Codex CLI `0.142.3`
 
@@ -838,6 +838,15 @@ Phase E は次の原則で進める。
 - 公式 Codex 拡張で開始した既存スレッドでも、取得可能な現在値と選択肢が空欄にならない。
 - モデルと推論レベルが会話画面に常時表示され、マウスとキーボードの両方で Runtime settings を予測どおり開閉できる。
 
+実装結果（2026-07-18）:
+
+- 公式 Codex 拡張由来の granular approval policy が `custom` と表示される場合、Webview がモデルを含む全設定変更を送信前に拒否していた原因を修正した。`custom` は Extension Host が所有する元の granular policy を保持する指定として扱い、Webview から内容を改変できない境界を維持した。
+- Sol／Terra／Luna の各 catalog ID と App Server へ渡す model 値を対応付け、granular approval policy を保持したまま各モデルが次の `thread/resume` と `turn/start` へ反映される回帰テストを追加した。
+- reasoning effort と service tier の現在値、カタログ既定値、カタログ外の現在値を分離し、`Default`、`Current (unlisted)`、`Unavailable` のいずれかで空欄なく表示するようにした。
+- composer の Runtime トリガーへモデル、推論レベル、利用可能な速度を常時表示し、長い表示はレイアウトを動かさず省略するようにした。
+- Runtime settings はトリガー上部に固定したまま、外側クリックと Escape で閉じ、Escape ではトリガーへフォーカスを戻すようにした。メニュー内の選択操作では閉じず、Add メニューとの同時表示も避けるようにした。
+- runtime state、Webview protocol、表示サマリーへ単体テストを追加し、既存の App Server 統合テストを含む品質ゲートで回帰がないことを確認した。
+
 ### 16.4 Phase E.3: 新規スレッド作成
 
 実装方針:
@@ -888,10 +897,10 @@ Phase E は次の原則で進める。
 ### 16.7 Phase E の受け入れ条件
 
 - [x] 送信した turn の Codex 発言が Reload なしで確定表示される。
-- [ ] Sol／Terra／Luna の選択が次の turn へ反映される。
-- [ ] 既存スレッドの推論レベルと速度が空欄ではなく意味のある状態で表示される。
-- [ ] 現在のモデルと推論レベルを会話画面で常に確認できる。
-- [ ] Runtime settings を外側クリックと Escape で閉じられる。
+- [x] Sol／Terra／Luna の選択が次の turn へ反映される。
+- [x] 既存スレッドの推論レベルと速度が空欄ではなく意味のある状態で表示される。
+- [x] 現在のモデルと推論レベルを会話画面で常に確認できる。
+- [x] Runtime settings を外側クリックと Escape で閉じられる。
 - [ ] 一覧から新規スレッドを開始できる。
 - [ ] Add メニューから少なくとも1種類の追加入力を送信できる。
 - [ ] turn をブックマークし、再読み込み後も対象箇所へ移動できる。

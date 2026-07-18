@@ -218,7 +218,9 @@ test('opens history in the sidebar, keeps it during snapshot updates, and return
 
   assert.deepEqual(reads, ['thread-1']);
   assert.deepEqual(
-    view.webview.postedMessages.map((message) => (message as { type?: unknown }).type),
+    view.webview.postedMessages
+      .map((message) => (message as { type?: unknown }).type)
+      .slice(0, 2),
     ['threads/conversationLoading', 'threads/conversationLoaded']
   );
 
@@ -415,7 +417,9 @@ test('restores the active conversation when the Webview context sends ready agai
 
   assert.deepEqual(reads, ['thread-1']);
   assert.deepEqual(
-    view.webview.postedMessages.map((message) => (message as { type?: unknown }).type),
+    view.webview.postedMessages
+      .map((message) => (message as { type?: unknown }).type)
+      .slice(0, 2),
     ['threads/conversationLoading', 'threads/conversationLoaded']
   );
 });

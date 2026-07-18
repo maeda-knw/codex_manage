@@ -351,8 +351,10 @@ function isRuntimeSettings(value: unknown): value is ConversationRuntimeSettings
     (value.model === null || typeof value.model === 'string') &&
     Array.isArray(value.efforts) && value.efforts.every(isRuntimeOption) &&
     (value.effort === null || typeof value.effort === 'string') &&
+    (value.defaultEffort === null || typeof value.defaultEffort === 'string') &&
     Array.isArray(value.serviceTiers) && value.serviceTiers.every(isRuntimeOption) &&
     (value.serviceTier === null || typeof value.serviceTier === 'string') &&
+    (value.defaultServiceTier === null || typeof value.defaultServiceTier === 'string') &&
     isSandboxMode(value.sandbox) &&
     (value.approvalPolicy === 'untrusted' || value.approvalPolicy === 'on-request' || value.approvalPolicy === 'never' || value.approvalPolicy === 'custom') &&
     (value.message === null || typeof value.message === 'string')
@@ -371,7 +373,12 @@ function isRuntimeSettingsUpdate(value: unknown): value is ConversationRuntimeSe
     (value.effort === null || typeof value.effort === 'string') &&
     (value.serviceTier === null || typeof value.serviceTier === 'string') &&
     isSandboxMode(value.sandbox) &&
-    (value.approvalPolicy === 'untrusted' || value.approvalPolicy === 'on-request' || value.approvalPolicy === 'never')
+    (
+      value.approvalPolicy === 'untrusted' ||
+      value.approvalPolicy === 'on-request' ||
+      value.approvalPolicy === 'never' ||
+      value.approvalPolicy === 'custom'
+    )
   );
 }
 

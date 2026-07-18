@@ -383,7 +383,29 @@ button.conversation-add,
   cursor: pointer;
 }
 
-.conversation-runtime-settings > summary { padding: 5px 8px; }
+.conversation-runtime-settings > summary {
+  display: grid;
+  justify-items: end;
+  gap: 1px;
+  max-width: min(360px, calc(100vw - 90px));
+  padding: 4px 8px;
+}
+
+.conversation-runtime-label {
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.66rem;
+  line-height: 1;
+}
+
+.conversation-runtime-current {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.76rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .conversation-add-menu {
   position: absolute;
