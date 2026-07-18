@@ -14,7 +14,8 @@ export function runtimeSettingsSummary(runtime: ConversationRuntimeSettings | un
   const parts = [model];
   if (effort) parts.push(effort);
   if (isFastRuntime(runtime)) parts.push('Fast');
-  parts.push(runtimePermissionLabel(runtime.sandbox));
+  const permission = runtimePermissionLabel(runtime.sandbox);
+  if (permission !== 'Workspace') parts.push(permission);
   return parts.join(' · ');
 }
 

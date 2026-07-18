@@ -410,13 +410,19 @@ button.conversation-add,
 
 .conversation-runtime-settings > summary {
   display: block;
+  max-width: min(260px, calc(100vw - 95px));
   padding: 6px 8px;
 }
 
-.conversation-runtime-label {
+.conversation-runtime-current {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
   color: var(--vscode-foreground);
   font-size: inherit;
   line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .conversation-add-menu {
@@ -516,20 +522,6 @@ button.conversation-add,
   gap: 8px;
   align-items: center;
   justify-content: space-between;
-}
-
-.conversation-composer-meta {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-
-.conversation-runtime-summary {
-  min-width: 0;
-  color: var(--vscode-foreground);
-  font-size: inherit;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
 }
 
 .conversation-composer-status {

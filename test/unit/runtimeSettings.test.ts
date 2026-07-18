@@ -21,10 +21,10 @@ function runtime(overrides: Partial<ConversationRuntimeSettings> = {}): Conversa
   };
 }
 
-test('summarizes the compact model, effective effort, and workspace permission without default labels', () => {
+test('summarizes the compact model and effective effort without default or workspace labels', () => {
   assert.equal(
     runtimeSettingsSummary(runtime()),
-    '5.6 Sol · Low · Workspace'
+    '5.6 Sol · Low'
   );
 });
 
@@ -47,7 +47,7 @@ test('shows speed only when Fast is effective and maps full access permission', 
 
   assert.equal(runtimeSettingsSummary(runtime({
     defaultServiceTier: 'priority'
-  })), '5.6 Sol · Low · Fast · Workspace');
+  })), '5.6 Sol · Low · Fast');
 });
 
 test('distinguishes unavailable and unlisted runtime values without blank labels', () => {
@@ -61,5 +61,5 @@ test('distinguishes unavailable and unlisted runtime values without blank labels
     serviceTiers: [],
     serviceTier: null,
     defaultServiceTier: null
-  })), 'private-model · Ultra · Workspace');
+  })), 'private-model · Ultra');
 });
