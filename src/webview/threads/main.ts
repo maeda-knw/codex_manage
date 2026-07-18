@@ -22,6 +22,7 @@ import {
   type ThreadsHostToWebviewMessage,
   type ThreadsWebviewState
 } from './protocol';
+import { defaultRuntimeLabel, runtimeSettingsSummary } from './runtimeSettings';
 
 interface VsCodeApi<T> {
   postMessage(message: unknown): void;
@@ -49,6 +50,8 @@ interface ConversationComposerTarget {
   readonly add: HTMLButtonElement;
   readonly addMenu: HTMLElement;
   readonly settings: HTMLDetailsElement;
+  readonly settingsSummary: HTMLElement;
+  readonly settingsCurrent: HTMLElement;
   readonly model: HTMLSelectElement;
   readonly effort: HTMLSelectElement;
   readonly serviceTier: HTMLSelectElement;
@@ -155,8 +158,25 @@ app.addEventListener('click', (event) => {
   }
 });
 
+document.addEventListener('click', (event) => {
+  const target = conversationComposerTarget;
+  if (
+    target?.settings.open &&
+    event.target instanceof Node &&
+    !target.settings.contains(event.target)
+  ) {
+    target.settings.open = false;
+  }
+});
+
 app.addEventListener('keydown', (event) => {
   if (!(event instanceof KeyboardEvent)) {
+    return;
+  }
+  if (event.key === 'Escape' && conversationComposerTarget?.settings.open) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeRuntimeSettings(true);
     return;
   }
   if (
@@ -511,7 +531,19 @@ function showConversationShell(
   const settings = document.createElement('details');
   settings.className = 'conversation-runtime-settings';
   const settingsSummary = document.createElement('summary');
-  settingsSummary.textContent = 'Runtime settings';
+  const settingsLabel = document.createElement('span');
+  settingsLabel.className = 'conversation-runtime-label';
+  settingsLabel.textContent = 'Runtime';
+  const settingsCurrent = document.createElement('span');
+  settingsCurrent.className = 'conversation-runtime-current';
+  settingsCurrent.textContent = 'Loading settings…';
+  settingsSummary.append(settingsLabel, settingsCurrent);
+  settings.addEventListener('toggle', () => {
+    if (settings.open) {
+      addMenu.hidden = true;
+      add.setAttribute('aria-expanded', 'false');
+    }
+  });
   const settingsGrid = document.createElement('div');
   settingsGrid.className = 'conversation-runtime-grid';
   const settingsMenu = document.createElement('div');
@@ -572,7 +604,7 @@ function showConversationShell(
   conversationTarget = { title: titleElement, meta, notice, content };
   conversationComposerTarget = {
     container: composer, input, send, stop, status, error, announcer,
-    add, addMenu, settings,
+    add, addMenu, settings, settingsSummary, settingsCurrent,
     model: model.select,
     effort: effort.select,
     serviceTier: serviceTier.select,
@@ -1012,11 +1044,24 @@ function renderRuntimeSettings(target: ConversationComposerTarget): void {
   const runtime = conversationScreenState?.runtime;
   const ready = runtime?.status === 'ready';
   target.settings.classList.toggle('is-unavailable', !ready);
-  const summary = target.settings.querySelector('summary');
-  if (summary) summary.textContent = runtime?.status === 'loading' ? 'Loading settings…' : 'Runtime settings';
+  const summaryText = runtimeSettingsSummary(runtime);
+  target.settingsCurrent.textContent = summaryText;
+  target.settingsSummary.setAttribute('aria-label', `Runtime settings: ${summaryText}`);
   syncSelect(target.model, runtime?.models ?? [], runtime?.model, false);
-  syncSelect(target.effort, runtime?.efforts ?? [], runtime?.effort, true, 'Default');
-  syncSelect(target.serviceTier, runtime?.serviceTiers ?? [], runtime?.serviceTier, true, 'Default speed');
+  syncSelect(
+    target.effort,
+    runtime?.efforts ?? [],
+    runtime?.effort,
+    true,
+    defaultRuntimeLabel('Default', runtime?.defaultEffort, runtime?.efforts ?? [])
+  );
+  syncSelect(
+    target.serviceTier,
+    runtime?.serviceTiers ?? [],
+    runtime?.serviceTier,
+    true,
+    defaultRuntimeLabel('Default speed', runtime?.defaultServiceTier, runtime?.serviceTiers ?? [])
+  );
   syncSelect(target.sandbox, [
     { value: 'read-only', label: 'Read only', description: 'No workspace writes' },
     { value: 'workspace-write', label: 'Workspace', description: 'Write inside the workspace' },
@@ -1043,7 +1088,7 @@ function submitRuntimeSettings(modelChanged: boolean): void {
   const sessionId = conversationSessionId;
   const threadId = conversationThreadId;
   if (!target || !state || !sessionId || !threadId || state.runtime.status !== 'ready') return;
-  if (!isSimpleApprovalPolicy(target.approvalPolicy.value) || !isSandboxMode(target.sandbox.value)) {
+  if (!isRuntimeApprovalPolicy(target.approvalPolicy.value) || !isSandboxMode(target.sandbox.value)) {
     renderRuntimeSettings(target);
     return;
   }
@@ -1066,6 +1111,14 @@ function toggleAddMenu(): void {
   if (!target) return;
   target.addMenu.hidden = !target.addMenu.hidden;
   target.add.setAttribute('aria-expanded', String(!target.addMenu.hidden));
+  if (!target.addMenu.hidden) target.settings.open = false;
+}
+
+function closeRuntimeSettings(restoreFocus: boolean): void {
+  const target = conversationComposerTarget;
+  if (!target) return;
+  target.settings.open = false;
+  if (restoreFocus) target.settingsSummary.focus({ preventScroll: true });
 }
 
 function runtimeSelect(label: string, id: string): { container: HTMLElement; select: HTMLSelectElement } {
@@ -1106,8 +1159,8 @@ function isSandboxMode(value: string): value is 'read-only' | 'workspace-write' 
   return value === 'read-only' || value === 'workspace-write' || value === 'danger-full-access';
 }
 
-function isSimpleApprovalPolicy(value: string): value is 'untrusted' | 'on-request' | 'never' {
-  return value === 'untrusted' || value === 'on-request' || value === 'never';
+function isRuntimeApprovalPolicy(value: string): value is 'untrusted' | 'on-request' | 'never' | 'custom' {
+  return value === 'untrusted' || value === 'on-request' || value === 'never' || value === 'custom';
 }
 
 function announceCompletedConversationTurn(

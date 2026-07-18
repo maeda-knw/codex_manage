@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed Runtime settings changes for conversations with granular approval policies while preserving the host-owned policy unchanged.
+- Added an always-visible model, reasoning, and available speed summary with explicit default, unlisted, and unavailable states, plus outside-click and Escape dismissal.
 - Fixed partially loaded turn-completion notifications so streamed text remains visible and the conversation automatically converges on authoritative history without a manual reload.
 - Added Phase D load regression coverage for thousand-turn histories, long streaming responses, authoritative convergence, and cross-thread isolation.
 - Added DOM-level Markdown security tests for inert HTML and blocked unsafe link protocols.

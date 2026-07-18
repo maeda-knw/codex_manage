@@ -20,6 +20,7 @@ const entryPoints = [
   'test/unit/conversationViewModel.test.ts',
   'test/unit/conversationWebview.test.ts',
   'test/unit/protocolGuards.test.ts',
+  'test/unit/runtimeSettings.test.ts',
   'test/unit/threadRepository.test.ts',
   'test/unit/threadListWebviewProvider.test.ts',
   'test/unit/threadTreeProvider.test.ts',

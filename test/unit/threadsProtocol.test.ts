@@ -41,8 +41,10 @@ const conversationState = {
     model: 'gpt-fixture',
     efforts: [{ value: 'medium', label: 'medium', description: 'Balanced' }],
     effort: 'medium',
+    defaultEffort: 'medium',
     serviceTiers: [],
     serviceTier: null,
+    defaultServiceTier: null,
     sandbox: 'workspace-write',
     approvalPolicy: 'on-request',
     message: null
@@ -89,6 +91,18 @@ test('accepts bounded composer actions and rejects arbitrary conversation payloa
     threadId: 'thread-1',
     requestId: 'request-1',
     text: 'Continue this thread'
+  }), true);
+  assert.equal(isThreadsWebviewMessage({
+    type: 'threads/conversation/settings',
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    settings: {
+      model: 'gpt-fixture',
+      effort: null,
+      serviceTier: null,
+      sandbox: 'workspace-write',
+      approvalPolicy: 'custom'
+    }
   }), true);
   assert.equal(isThreadsWebviewMessage({
     type: 'threads/conversation/interaction',

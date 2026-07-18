@@ -52,8 +52,10 @@ export interface ConversationRuntimeSettings {
   readonly model: string | null;
   readonly efforts: readonly ConversationRuntimeOption[];
   readonly effort: string | null;
+  readonly defaultEffort: string | null;
   readonly serviceTiers: readonly ConversationRuntimeOption[];
   readonly serviceTier: string | null;
+  readonly defaultServiceTier: string | null;
   readonly sandbox: SandboxMode;
   readonly approvalPolicy: SimpleApprovalPolicy | 'custom';
   readonly message: string | null;
@@ -64,7 +66,7 @@ export interface ConversationRuntimeSettingsUpdate {
   readonly effort: string | null;
   readonly serviceTier: string | null;
   readonly sandbox: SandboxMode;
-  readonly approvalPolicy: SimpleApprovalPolicy;
+  readonly approvalPolicy: SimpleApprovalPolicy | 'custom';
 }
 
 export type ConversationSessionSync = 'ready' | 'stale' | 'error';
@@ -112,8 +114,10 @@ export class ConversationSession {
     model: null,
     efforts: [],
     effort: null,
+    defaultEffort: null,
     serviceTiers: [],
     serviceTier: null,
+    defaultServiceTier: null,
     sandbox: 'workspace-write',
     approvalPolicy: 'on-request',
     message: null
@@ -196,10 +200,16 @@ export class ConversationSession {
   }
 
   public updateRuntimeSettings(update: ConversationRuntimeSettingsUpdate): boolean {
-    if (this.disposed || this.runtime.status !== 'ready' || !isRuntimeUpdateValid(this.modelCatalog, update)) {
+    if (
+      this.disposed ||
+      this.runtime.status !== 'ready' ||
+      !isRuntimeUpdateValid(this.modelCatalog, this.runtime.approvalPolicy, update)
+    ) {
       return false;
     }
-    this.approvalPolicy = update.approvalPolicy;
+    if (update.approvalPolicy !== 'custom') {
+      this.approvalPolicy = update.approvalPolicy;
+    }
     this.runtime = runtimeSettingsFrom(
       this.modelCatalog,
       update.model,
@@ -729,7 +739,7 @@ function runtimeSettingsFrom(
   effort: string | null,
   serviceTier: string | null,
   sandbox: SandboxMode,
-  approvalPolicy: AskForApproval
+  approvalPolicy: AskForApproval | 'custom'
 ): ConversationRuntimeSettings {
   const model = findRuntimeModel(models, selectedModel);
   const modelOptions = models.map((candidate) => ({
@@ -739,24 +749,46 @@ function runtimeSettingsFrom(
   }));
   const modelSelection = model?.id ?? selectedModel;
   if (!modelOptions.some((option) => option.value === modelSelection)) {
-    modelOptions.unshift({ value: selectedModel, label: selectedModel, description: 'Current model' });
+    modelOptions.unshift({
+      value: selectedModel,
+      label: `${selectedModel} (current, unlisted)`,
+      description: 'Current model is not advertised by this App Server catalog.'
+    });
+  }
+  const effortOptions: ConversationRuntimeOption[] = (model?.supportedReasoningEfforts ?? []).map((option) => ({
+    value: option.reasoningEffort,
+    label: runtimeValueLabel(option.reasoningEffort),
+    description: option.description
+  }));
+  if (effort && !effortOptions.some((option) => option.value === effort)) {
+    effortOptions.unshift({
+      value: effort,
+      label: `${runtimeValueLabel(effort)} (current, unlisted)`,
+      description: 'Current reasoning effort is not advertised for this model.'
+    });
+  }
+  const serviceTierOptions: ConversationRuntimeOption[] = (model?.serviceTiers ?? []).map((tier) => ({
+    value: tier.id,
+    label: tier.name,
+    description: tier.description
+  }));
+  if (serviceTier && !serviceTierOptions.some((option) => option.value === serviceTier)) {
+    serviceTierOptions.unshift({
+      value: serviceTier,
+      label: `${serviceTier} (current, unlisted)`,
+      description: 'Current speed is not advertised for this model.'
+    });
   }
   return {
     status: 'ready',
     models: modelOptions,
     model: modelSelection,
-    efforts: (model?.supportedReasoningEfforts ?? []).map((option) => ({
-      value: option.reasoningEffort,
-      label: option.reasoningEffort,
-      description: option.description
-    })),
-    effort: effort ?? model?.defaultReasoningEffort ?? null,
-    serviceTiers: (model?.serviceTiers ?? []).map((tier) => ({
-      value: tier.id,
-      label: tier.name,
-      description: tier.description
-    })),
+    efforts: effortOptions,
+    effort,
+    defaultEffort: model?.defaultReasoningEffort ?? null,
+    serviceTiers: serviceTierOptions,
     serviceTier,
+    defaultServiceTier: model?.defaultServiceTier ?? null,
     sandbox,
     approvalPolicy: typeof approvalPolicy === 'string' ? approvalPolicy : 'custom',
     message: null
@@ -765,6 +797,7 @@ function runtimeSettingsFrom(
 
 function isRuntimeUpdateValid(
   models: readonly Model[],
+  currentApprovalPolicy: ConversationRuntimeSettings['approvalPolicy'],
   update: ConversationRuntimeSettingsUpdate
 ): boolean {
   const model = models.find((candidate) => candidate.id === update.model);
@@ -773,7 +806,10 @@ function isRuntimeUpdateValid(
     (update.effort === null || model.supportedReasoningEfforts.some((option) => option.reasoningEffort === update.effort)) &&
     (update.serviceTier === null || model.serviceTiers.some((tier) => tier.id === update.serviceTier)) &&
     ['read-only', 'workspace-write', 'danger-full-access'].includes(update.sandbox) &&
-    ['untrusted', 'on-request', 'never'].includes(update.approvalPolicy)
+    (
+      ['untrusted', 'on-request', 'never'].includes(update.approvalPolicy) ||
+      update.approvalPolicy === 'custom' && currentApprovalPolicy === 'custom'
+    )
   );
 }
 
@@ -784,6 +820,10 @@ function findRuntimeModel(models: readonly Model[], selection: string): Model | 
 
 function runtimeModelValue(models: readonly Model[], selection: string): string {
   return findRuntimeModel(models, selection)?.model ?? selection;
+}
+
+function runtimeValueLabel(value: string): string {
+  return value ? `${value[0]?.toUpperCase() ?? ''}${value.slice(1)}` : value;
 }
 
 function sandboxModeFromPolicy(policy: SandboxPolicy): SandboxMode {
