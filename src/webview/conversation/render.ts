@@ -3,6 +3,7 @@ import type {
   ConversationTurnViewModel,
   ConversationViewModel
 } from '../../conversation/conversationViewModel';
+import { renderMarkdown } from './markdown';
 
 export interface ConversationRenderTarget {
   readonly title: HTMLElement;
@@ -194,11 +195,9 @@ function reconcileItems(items: HTMLElement, turn: ConversationTurnViewModel): vo
 function createItem(item: ConversationItemViewModel): HTMLElement {
   if (item.kind === 'message') {
     const article = document.createElement('article');
-    const label = document.createElement('div');
-    label.className = 'message-label';
-    const text = document.createElement('pre');
+    const text = document.createElement('div');
     text.className = 'message-text';
-    article.append(label, text);
+    article.append(text);
     return article;
   }
 
@@ -220,11 +219,8 @@ function updateItem(element: HTMLElement, item: ConversationItemViewModel): void
   if (item.kind === 'message') {
     element.dataset.itemRole = item.role;
     setClassName(element, `message message-${item.role}`);
-    setTextContent(
-      requiredDescendant<HTMLElement>(element, '.message-label'),
-      item.role === 'user' ? 'You' : 'Codex'
-    );
-    setAppendableText(requiredDescendant<HTMLElement>(element, '.message-text'), item.text);
+    element.setAttribute('aria-label', item.role === 'user' ? 'Your message' : 'Codex response');
+    renderMarkdown(requiredDescendant<HTMLElement>(element, '.message-text'), item.text);
     return;
   }
 
@@ -286,21 +282,6 @@ function setTextContent(element: HTMLElement, value: string): void {
   if (element.textContent !== value) {
     element.textContent = value;
   }
-}
-
-function setAppendableText(element: HTMLElement, value: string): void {
-  const current = element.textContent ?? '';
-  if (current === value) {
-    return;
-  }
-  const textNode = element.childNodes.length === 1 && element.firstChild instanceof Text
-    ? element.firstChild
-    : undefined;
-  if (textNode && value.startsWith(current)) {
-    textNode.appendData(value.slice(current.length));
-    return;
-  }
-  setTextContent(element, value);
 }
 
 function setClassName(element: HTMLElement, value: string): void {

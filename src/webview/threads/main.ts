@@ -45,6 +45,14 @@ interface ConversationComposerTarget {
   readonly status: HTMLElement;
   readonly error: HTMLElement;
   readonly announcer: HTMLElement;
+  readonly add: HTMLButtonElement;
+  readonly addMenu: HTMLElement;
+  readonly settings: HTMLDetailsElement;
+  readonly model: HTMLSelectElement;
+  readonly effort: HTMLSelectElement;
+  readonly serviceTier: HTMLSelectElement;
+  readonly sandbox: HTMLSelectElement;
+  readonly approvalPolicy: HTMLSelectElement;
 }
 
 interface PendingConversationSend {
@@ -117,6 +125,10 @@ app.addEventListener('click', (event) => {
     submitConversation();
     return;
   }
+  if (action === 'add') {
+    toggleAddMenu();
+    return;
+  }
   if (action === 'back') {
     vscode.postMessage({ type: 'threads/back' });
     return;
@@ -181,6 +193,14 @@ app.addEventListener('input', (event) => {
   if (event.target === conversationComposerTarget?.input) {
     updateConversationComposer();
   }
+});
+
+app.addEventListener('change', (event) => {
+  const target = conversationComposerTarget;
+  if (!target || !(event.target instanceof HTMLSelectElement) || !target.settings.contains(event.target)) {
+    return;
+  }
+  submitRuntimeSettings(event.target === target.model);
 });
 
 vscode.postMessage({ type: 'threads/ready' });
@@ -462,6 +482,40 @@ function showConversationShell(
   composer.className = 'conversation-composer';
   composer.setAttribute('role', 'group');
   composer.setAttribute('aria-label', 'Message Codex');
+  const tools = document.createElement('div');
+  tools.className = 'conversation-composer-tools';
+  const add = actionButton('＋ Add', 'add');
+  add.className = 'conversation-add';
+  add.setAttribute('aria-haspopup', 'menu');
+  add.setAttribute('aria-expanded', 'false');
+  const addWrap = document.createElement('div');
+  addWrap.className = 'conversation-add-wrap';
+  const addMenu = document.createElement('div');
+  addMenu.className = 'conversation-add-menu';
+  addMenu.setAttribute('role', 'menu');
+  addMenu.hidden = true;
+  const addEmpty = document.createElement('p');
+  addEmpty.textContent = 'No additional context inputs are available yet.';
+  addMenu.append(addEmpty);
+  addWrap.append(add, addMenu);
+
+  const settings = document.createElement('details');
+  settings.className = 'conversation-runtime-settings';
+  const settingsSummary = document.createElement('summary');
+  settingsSummary.textContent = 'Runtime settings';
+  const settingsGrid = document.createElement('div');
+  settingsGrid.className = 'conversation-runtime-grid';
+  const model = runtimeSelect('Model', 'conversation-runtime-model');
+  const effort = runtimeSelect('Reasoning', 'conversation-runtime-effort');
+  const serviceTier = runtimeSelect('Speed', 'conversation-runtime-speed');
+  const sandbox = runtimeSelect('Sandbox', 'conversation-runtime-sandbox');
+  const approvalPolicy = runtimeSelect('Approvals', 'conversation-runtime-approvals');
+  settingsGrid.append(model.container, effort.container, serviceTier.container, sandbox.container, approvalPolicy.container);
+  const settingsHint = document.createElement('p');
+  settingsHint.className = 'conversation-runtime-hint';
+  settingsHint.textContent = 'Changes apply to the next turn.';
+  settings.append(settingsSummary, settingsGrid, settingsHint);
+  tools.append(addWrap, settings);
   const inputLabel = document.createElement('label');
   inputLabel.className = 'sr-only';
   inputLabel.htmlFor = 'conversation-composer-input';
@@ -499,12 +553,20 @@ function showConversationShell(
   send.title = 'Send (Ctrl/Cmd+Enter)';
   controls.append(stop, send);
   footer.append(status, controls);
-  composer.append(inputLabel, input, error, footer);
+  composer.append(tools, inputLabel, input, error, footer);
 
   section.append(header, notice, content, announcer, composer);
   app.append(section);
   conversationTarget = { title: titleElement, meta, notice, content };
-  conversationComposerTarget = { container: composer, input, send, stop, status, error, announcer };
+  conversationComposerTarget = {
+    container: composer, input, send, stop, status, error, announcer,
+    add, addMenu, settings,
+    model: model.select,
+    effort: effort.select,
+    serviceTier: serviceTier.select,
+    sandbox: sandbox.select,
+    approvalPolicy: approvalPolicy.select
+  };
   updateConversationComposer();
   if (focusBack) {
     requestAnimationFrame(() => back.focus({ preventScroll: true }));
@@ -719,6 +781,7 @@ function updateConversationComposer(): void {
   const execution = conversationScreenState?.execution;
   const hasState = Boolean(conversationScreenState && conversationSessionId);
   const unavailable = execution?.kind === 'unavailable';
+  renderRuntimeSettings(target);
   target.input.disabled = !hasState || unavailable;
   target.input.readOnly = Boolean(pendingConversationSend);
   const canSend = Boolean(
@@ -760,6 +823,108 @@ function updateConversationComposer(): void {
   if (moveFocusFromStop) {
     requestAnimationFrame(() => focusAfterConversationStop(target));
   }
+}
+
+function renderRuntimeSettings(target: ConversationComposerTarget): void {
+  const runtime = conversationScreenState?.runtime;
+  const ready = runtime?.status === 'ready';
+  target.settings.classList.toggle('is-unavailable', !ready);
+  const summary = target.settings.querySelector('summary');
+  if (summary) summary.textContent = runtime?.status === 'loading' ? 'Loading settings…' : 'Runtime settings';
+  syncSelect(target.model, runtime?.models ?? [], runtime?.model, false);
+  syncSelect(target.effort, runtime?.efforts ?? [], runtime?.effort, true, 'Default');
+  syncSelect(target.serviceTier, runtime?.serviceTiers ?? [], runtime?.serviceTier, true, 'Default speed');
+  syncSelect(target.sandbox, [
+    { value: 'read-only', label: 'Read only', description: 'No workspace writes' },
+    { value: 'workspace-write', label: 'Workspace', description: 'Write inside the workspace' },
+    { value: 'danger-full-access', label: 'Full access', description: 'Unrestricted filesystem access' }
+  ], runtime?.sandbox ?? 'workspace-write', false);
+  const approvalOptions = [
+    { value: 'untrusted', label: 'Strict', description: 'Ask for untrusted operations' },
+    { value: 'on-request', label: 'On request', description: 'Codex may request approval' },
+    { value: 'never', label: 'Never ask', description: 'Never request approval' }
+  ];
+  if (runtime?.approvalPolicy === 'custom') {
+    approvalOptions.unshift({ value: 'custom', label: 'Custom (current)', description: 'Granular policy from Codex' });
+  }
+  syncSelect(target.approvalPolicy, approvalOptions, runtime?.approvalPolicy ?? 'on-request', false);
+  for (const select of [target.model, target.effort, target.serviceTier, target.sandbox, target.approvalPolicy]) {
+    select.disabled = !ready;
+  }
+  target.settings.title = runtime?.message ?? 'Changes apply to the next turn.';
+}
+
+function submitRuntimeSettings(modelChanged: boolean): void {
+  const target = conversationComposerTarget;
+  const state = conversationScreenState;
+  const sessionId = conversationSessionId;
+  const threadId = conversationThreadId;
+  if (!target || !state || !sessionId || !threadId || state.runtime.status !== 'ready') return;
+  if (!isSimpleApprovalPolicy(target.approvalPolicy.value) || !isSandboxMode(target.sandbox.value)) {
+    renderRuntimeSettings(target);
+    return;
+  }
+  vscode.postMessage({
+    type: 'threads/conversation/settings',
+    sessionId,
+    threadId,
+    settings: {
+      model: target.model.value,
+      effort: modelChanged ? null : target.effort.value || null,
+      serviceTier: modelChanged ? null : target.serviceTier.value || null,
+      sandbox: target.sandbox.value,
+      approvalPolicy: target.approvalPolicy.value
+    }
+  });
+}
+
+function toggleAddMenu(): void {
+  const target = conversationComposerTarget;
+  if (!target) return;
+  target.addMenu.hidden = !target.addMenu.hidden;
+  target.add.setAttribute('aria-expanded', String(!target.addMenu.hidden));
+}
+
+function runtimeSelect(label: string, id: string): { container: HTMLElement; select: HTMLSelectElement } {
+  const container = document.createElement('label');
+  container.className = 'conversation-runtime-field';
+  const caption = document.createElement('span');
+  caption.textContent = label;
+  const select = document.createElement('select');
+  select.id = id;
+  select.setAttribute('aria-label', label);
+  container.append(caption, select);
+  return { container, select };
+}
+
+function syncSelect(
+  select: HTMLSelectElement,
+  options: readonly { readonly value: string; readonly label: string; readonly description: string }[],
+  value: string | null | undefined,
+  includeEmpty: boolean,
+  emptyLabel = 'Default'
+): void {
+  const signature = JSON.stringify([includeEmpty, emptyLabel, options]);
+  if (select.dataset.options !== signature) {
+    const elements: HTMLOptionElement[] = [];
+    if (includeEmpty) elements.push(new Option(emptyLabel, ''));
+    for (const option of options) {
+      const element = new Option(option.label, option.value);
+      element.title = option.description;
+      elements.push(element);
+    }
+    select.replaceChildren(...elements);
+    select.dataset.options = signature;
+  }
+  select.value = value ?? '';
+}
+
+function isSandboxMode(value: string): value is 'read-only' | 'workspace-write' | 'danger-full-access' {
+  return value === 'read-only' || value === 'workspace-write' || value === 'danger-full-access';
+}
+
+function isSimpleApprovalPolicy(value: string): value is 'untrusted' | 'on-request' | 'never' {
+  return value === 'untrusted' || value === 'on-request' || value === 'never';
 }
 
 function announceCompletedConversationTurn(
@@ -1001,7 +1166,7 @@ function requireConversationTarget(): ConversationRenderTarget {
 
 function actionButton(
   label: string,
-  action: ThreadListAction | 'open' | 'back' | 'reload' | 'send' | 'stop',
+  action: ThreadListAction | 'open' | 'back' | 'reload' | 'send' | 'stop' | 'add',
   threadId?: string
 ): HTMLButtonElement {
   const result = document.createElement('button');

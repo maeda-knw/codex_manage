@@ -158,6 +158,9 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
               message.requestId
             );
             return;
+          case 'threads/conversation/settings':
+            this.updateConversationSettings(message.sessionId, message.threadId, message.settings);
+            return;
           case 'threads/action':
             this.executeAction(message.action, message.threadId);
         }
@@ -372,6 +375,7 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
         this.pendingConversationLoad = undefined;
         this.conversationSessions.set(reference.id, session);
         this.attachConversationSession(session, generation, sessionId, reference);
+        void session.loadRuntimeSettings();
       },
       (error: unknown) => {
         if (
@@ -507,6 +511,25 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
             : 'The running turn could not be stopped. Reload the conversation and try again.'
         });
     });
+  }
+
+  private updateConversationSettings(
+    sessionId: string,
+    threadId: string,
+    settings: Parameters<ConversationSession['updateRuntimeSettings']>[0]
+  ): void {
+    const session = this.conversationSession;
+    if (!session || !this.isCurrentSession(sessionId, threadId)) {
+      this.options.logger.appendLine(
+        `[threads] Ignored stale settings request for sidebar thread ${threadId}.`
+      );
+      return;
+    }
+    if (!session.updateRuntimeSettings(settings)) {
+      this.options.logger.appendLine(
+        `[threads] Ignored invalid settings request for sidebar thread ${threadId}.`
+      );
+    }
   }
 
   private executeAction(action: ThreadListAction, threadId?: string): void {
@@ -713,13 +736,15 @@ function toConversationScreenState(
       revision: snapshot.revision,
       model: snapshot.model,
       execution,
+      runtime: snapshot.runtime,
       notice: snapshot.notice
     }
     : {
       sessionId,
       revision: snapshot.revision,
       model: snapshot.model,
-      execution
+      execution,
+      runtime: snapshot.runtime
     };
 }
 

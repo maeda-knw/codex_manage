@@ -3,6 +3,10 @@ import type {
   ConversationTurnViewModel,
   ConversationViewModel
 } from '../../conversation/conversationViewModel';
+import type {
+  ConversationRuntimeSettings,
+  ConversationRuntimeSettingsUpdate
+} from '../../conversation/conversationSession';
 
 export const MAX_COMPOSER_TEXT_LENGTH = 100_000;
 export const MAX_CONVERSATION_ID_LENGTH = 512;
@@ -64,6 +68,7 @@ export interface ConversationScreenState {
   readonly revision: number;
   readonly model: ConversationViewModel;
   readonly execution: ConversationExecutionViewModel;
+  readonly runtime: ConversationRuntimeSettings;
   readonly notice?: string;
 }
 
@@ -105,6 +110,12 @@ export type ThreadsWebviewToHostMessage =
     readonly sessionId: string;
     readonly threadId: string;
     readonly requestId: string;
+  }
+  | {
+    readonly type: 'threads/conversation/settings';
+    readonly sessionId: string;
+    readonly threadId: string;
+    readonly settings: ConversationRuntimeSettingsUpdate;
   }
   | {
     readonly type: 'threads/action';
@@ -205,6 +216,14 @@ export function isThreadsWebviewMessage(value: unknown): value is ThreadsWebview
       isBoundedId(value.requestId)
     );
   }
+  if (value.type === 'threads/conversation/settings') {
+    return (
+      hasOnlyKeys(value, ['type', 'sessionId', 'threadId', 'settings']) &&
+      isBoundedId(value.sessionId) &&
+      isBoundedId(value.threadId) &&
+      isRuntimeSettingsUpdate(value.settings)
+    );
+  }
   if (
     value.type !== 'threads/action' ||
     typeof value.action !== 'string' ||
@@ -255,8 +274,45 @@ export function isConversationScreenState(value: unknown): value is Conversation
     value.revision >= 0 &&
     isConversationViewModel(value.model) &&
     isConversationExecution(value.execution) &&
+    isRuntimeSettings(value.runtime) &&
     (value.notice === undefined || typeof value.notice === 'string')
   );
+}
+
+function isRuntimeSettings(value: unknown): value is ConversationRuntimeSettings {
+  return (
+    isObject(value) &&
+    (value.status === 'loading' || value.status === 'ready' || value.status === 'unavailable') &&
+    Array.isArray(value.models) && value.models.every(isRuntimeOption) &&
+    (value.model === null || typeof value.model === 'string') &&
+    Array.isArray(value.efforts) && value.efforts.every(isRuntimeOption) &&
+    (value.effort === null || typeof value.effort === 'string') &&
+    Array.isArray(value.serviceTiers) && value.serviceTiers.every(isRuntimeOption) &&
+    (value.serviceTier === null || typeof value.serviceTier === 'string') &&
+    isSandboxMode(value.sandbox) &&
+    (value.approvalPolicy === 'untrusted' || value.approvalPolicy === 'on-request' || value.approvalPolicy === 'never' || value.approvalPolicy === 'custom') &&
+    (value.message === null || typeof value.message === 'string')
+  );
+}
+
+function isRuntimeOption(value: unknown): boolean {
+  return isObject(value) && typeof value.value === 'string' && typeof value.label === 'string' && typeof value.description === 'string';
+}
+
+function isRuntimeSettingsUpdate(value: unknown): value is ConversationRuntimeSettingsUpdate {
+  return (
+    isObject(value) &&
+    hasOnlyKeys(value, ['model', 'effort', 'serviceTier', 'sandbox', 'approvalPolicy']) &&
+    typeof value.model === 'string' && Boolean(value.model) &&
+    (value.effort === null || typeof value.effort === 'string') &&
+    (value.serviceTier === null || typeof value.serviceTier === 'string') &&
+    isSandboxMode(value.sandbox) &&
+    (value.approvalPolicy === 'untrusted' || value.approvalPolicy === 'on-request' || value.approvalPolicy === 'never')
+  );
+}
+
+function isSandboxMode(value: unknown): boolean {
+  return value === 'read-only' || value === 'workspace-write' || value === 'danger-full-access';
 }
 
 export function isThreadsWebviewState(value: unknown): value is ThreadsWebviewState {
