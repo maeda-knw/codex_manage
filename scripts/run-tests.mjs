@@ -10,6 +10,7 @@ const entryPoints = [
   'test/unit/dependencyDoctor.test.mjs',
   'test/unit/jsonlTransport.test.ts',
   'test/unit/markdownRenderer.test.mjs',
+  'test/unit/newConversationDefaults.test.ts',
   'test/unit/pinStore.test.ts',
   'test/unit/conversationPanelManager.test.ts',
   'test/unit/conversationInteraction.test.ts',

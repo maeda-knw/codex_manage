@@ -97,6 +97,13 @@ Default: `50`; allowed range: `1` to `200`.
 
 Controls how many active or archived thread records are requested per page.
 
+### New conversation defaults
+
+- `codexThreadManager.defaultPermission` defaults to `auto` (**Approve for me**). It can also be set to `ask` or `full`.
+- `codexThreadManager.defaultSpeed` defaults to `standard`. Set it to `fast` to select the active model's faster service tier when one is available.
+
+These settings apply when a new conversation is opened. The model and reasoning effort continue to use the current Codex defaults, and all runtime choices can still be changed in the new-conversation composer.
+
 ## Remote, WSL, and containers
 
 This is a workspace extension. In Remote SSH, WSL, or Dev Containers, install and authenticate Codex CLI in the remote environment rather than only on the local machine.
