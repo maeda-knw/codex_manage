@@ -366,8 +366,11 @@ button.thread-action:hover {
 }
 
 .conversation-view .message {
-  max-width: 100%;
   padding: 10px;
+}
+
+.conversation-view .message-assistant {
+  max-width: 100%;
 }
 
 .conversation-view .activity-summary {

@@ -263,7 +263,7 @@ details .activity-summary {
     align-self: flex-start;
   }
 
-  .message {
+  .message-assistant {
     max-width: 100%;
   }
 }
