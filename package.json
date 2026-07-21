@@ -122,6 +122,34 @@
           "minimum": 1,
           "maximum": 200,
           "description": "Number of threads to request per page."
+        },
+        "codexThreadManager.defaultPermission": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "auto",
+            "full"
+          ],
+          "enumDescriptions": [
+            "Ask you to approve eligible operations.",
+            "Let an independent reviewer approve eligible operations for you.",
+            "Run without sandbox restrictions or approval prompts."
+          ],
+          "default": "auto",
+          "description": "Default permission preset for new conversations."
+        },
+        "codexThreadManager.defaultSpeed": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "fast"
+          ],
+          "enumDescriptions": [
+            "Use the standard service tier.",
+            "Use the model's faster service tier when available."
+          ],
+          "default": "standard",
+          "description": "Default speed for new conversations."
         }
       }
     }

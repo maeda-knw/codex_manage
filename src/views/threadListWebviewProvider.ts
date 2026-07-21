@@ -68,12 +68,18 @@ export interface ThreadListWebviewProviderOptions {
   readonly conversationClient: ConversationSessionClient;
   readonly startThread?: (params: ThreadStartParams) => Promise<ThreadStartResponse>;
   readonly readConversationConfig?: (cwd: string) => Promise<ConversationConfigDefaults>;
+  readonly readNewConversationDefaults?: () => NewConversationDefaults;
   readonly onConversationCreated?: (thread: Thread) => void;
   readonly respondToServerRequest?: (id: AppServerRequest['id'], result: unknown) => Promise<boolean>;
   readonly pickLocalImages?: () => Promise<readonly PickedLocalImage[]>;
   readonly pickMentionFiles?: () => Promise<readonly PickedMentionFile[]>;
   readonly pickSkills?: (cwd: string) => Promise<readonly PickedSkill[]>;
   readonly logger: ThreadListWebviewLogger;
+}
+
+export interface NewConversationDefaults {
+  readonly permission: 'ask' | 'auto' | 'full';
+  readonly speed: 'standard' | 'fast';
 }
 
 export interface PickedLocalImage {
@@ -668,14 +674,23 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
           return;
         }
         draft.models = models;
-        draft.approvalPolicy = defaults.approvalPolicy ?? 'on-request';
-        draft.approvalsReviewer = defaults.approvalsReviewer ?? 'user';
+        const extensionDefaults = this.options.readNewConversationDefaults?.();
+        const permissions = newConversationPermissions(extensionDefaults?.permission);
+        draft.approvalPolicy = permissions?.approvalPolicy ?? defaults.approvalPolicy ?? 'on-request';
+        draft.approvalsReviewer = permissions?.approvalsReviewer ?? defaults.approvalsReviewer ?? 'user';
+        const sandbox = permissions?.sandbox ?? defaults.sandbox ?? 'read-only';
+        const serviceTier = newConversationServiceTier(
+          models,
+          selectedModel,
+          extensionDefaults?.speed,
+          defaults.serviceTier
+        );
         draft.runtime = createConversationRuntimeSettings(
           models,
           selectedModel,
           defaults.reasoningEffort,
-          defaults.serviceTier,
-          defaults.sandbox ?? 'read-only',
+          serviceTier,
+          sandbox,
           draft.approvalPolicy,
           draft.approvalsReviewer
         );
@@ -1576,6 +1591,40 @@ export class ThreadListWebviewProvider implements vscode.WebviewViewProvider, vs
       this.viewDisposables.pop()?.dispose();
     }
   }
+}
+
+export function newConversationPermissions(permission: NewConversationDefaults['permission'] | undefined): {
+  readonly sandbox: 'workspace-write' | 'danger-full-access';
+  readonly approvalPolicy: 'on-request' | 'never';
+  readonly approvalsReviewer: 'user' | 'auto_review';
+} | undefined {
+  switch (permission) {
+    case 'ask':
+      return { sandbox: 'workspace-write', approvalPolicy: 'on-request', approvalsReviewer: 'user' };
+    case 'auto':
+      return { sandbox: 'workspace-write', approvalPolicy: 'on-request', approvalsReviewer: 'auto_review' };
+    case 'full':
+      return { sandbox: 'danger-full-access', approvalPolicy: 'never', approvalsReviewer: 'user' };
+    default:
+      return undefined;
+  }
+}
+
+export function newConversationServiceTier(
+  models: readonly Model[],
+  selection: string,
+  speed: NewConversationDefaults['speed'] | undefined,
+  configuredTier: string | null
+): string | null {
+  if (!speed) return configuredTier;
+  if (speed === 'standard') return null;
+  const model = models.find((candidate) => candidate.id === selection) ??
+    models.find((candidate) => candidate.model === selection);
+  return model?.serviceTiers.find((tier) =>
+    tier.id.toLowerCase() === 'fast' ||
+    tier.id.toLowerCase() === 'priority' ||
+    tier.name.toLowerCase() === 'fast'
+  )?.id ?? null;
 }
 
 function webviewRoot(extensionUri: vscode.Uri): vscode.Uri {

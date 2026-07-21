@@ -78,6 +78,13 @@ export function activate(context: vscode.ExtensionContext): void {
     },
     startThread: (params) => (activeClient ?? replaceClient()).startThread(params),
     readConversationConfig: (cwd) => (activeClient ?? replaceClient()).readConversationConfig({ cwd }),
+    readNewConversationDefaults: () => {
+      const configuration = vscode.workspace.getConfiguration('codexThreadManager');
+      return {
+        permission: configuration.get<'ask' | 'auto' | 'full'>('defaultPermission', 'auto'),
+        speed: configuration.get<'standard' | 'fast'>('defaultSpeed', 'standard')
+      };
+    },
     onConversationCreated: (thread) => {
       repository?.upsertThread(thread);
       if (repository) provider.setSnapshot(repository.snapshot());
