@@ -13,6 +13,7 @@
 body {
   margin: 0;
   padding: 24px clamp(16px, 4vw, 48px) 48px;
+  overflow-wrap: anywhere;
 }
 
 button {
@@ -92,6 +93,8 @@ summary:focus-visible {
 }
 
 .turn {
+  min-width: 0;
+  max-width: 100%;
   margin: 28px 0;
   padding-top: 8px;
 }
@@ -127,11 +130,14 @@ summary:focus-visible {
 
 .turn-items {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   gap: 12px;
 }
 
 .message {
-  max-width: min(88%, 900px);
+  min-width: 0;
+  max-width: min(74%, 900px);
   padding: 12px 14px;
   border: 1px solid var(--vscode-widget-border);
   border-radius: 8px;
@@ -154,7 +160,7 @@ summary:focus-visible {
   font-family: var(--vscode-font-family);
 }
 
-.message-text { overflow-wrap: anywhere; line-height: 1.5; }
+.message-text { min-width: 0; max-width: 100%; overflow-wrap: anywhere; line-height: 1.5; }
 .message-text > :first-child { margin-top: 0; }
 .message-text > :last-child { margin-bottom: 0; }
 .message-text p { margin: 0 0 0.75em; }
@@ -173,9 +179,12 @@ summary:focus-visible {
   border-left: 3px solid var(--vscode-textBlockQuote-border);
 }
 .message-text pre {
+  max-width: 100%;
   margin: 0.65em 0;
   padding: 8px;
   overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   background: var(--vscode-textCodeBlock-background);
   border-radius: 4px;
 }
@@ -185,6 +194,8 @@ summary:focus-visible {
 
 .activity-card {
   display: block;
+  min-width: 0;
+  max-width: 100%;
   padding: 9px 11px;
   color: var(--vscode-foreground);
   background: var(--vscode-editorWidget-background);
@@ -252,7 +263,7 @@ details .activity-summary {
     align-self: flex-start;
   }
 
-  .message {
+  .message-assistant {
     max-width: 100%;
   }
 }
