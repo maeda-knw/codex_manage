@@ -137,7 +137,7 @@ summary:focus-visible {
 
 .message {
   min-width: 0;
-  max-width: min(88%, 900px);
+  max-width: min(74%, 900px);
   padding: 12px 14px;
   border: 1px solid var(--vscode-widget-border);
   border-radius: 8px;
