@@ -1,5 +1,17 @@
 import type { ConversationRuntimeSettings } from '../../conversation/conversationSession';
 
+export const conversationPermissionOptions: readonly {
+  readonly value: string;
+  readonly label: string;
+  readonly description: string;
+}[] = [
+  { value: 'ask', label: 'Ask', description: 'Ask you to approve eligible operations.' },
+  { value: 'auto', label: 'Auto', description: 'Let an independent reviewer approve eligible operations for you.' },
+  { value: 'full', label: 'Full', description: 'Run without sandbox restrictions or approval prompts.' }
+];
+
+export const standardSpeedLabel = 'Standard';
+
 export function runtimeSettingsSummary(runtime: ConversationRuntimeSettings | undefined): string {
   if (!runtime || runtime.status === 'loading') return 'Loading settings…';
   if (runtime.status === 'unavailable') return 'Unavailable';

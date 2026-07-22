@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ConversationRuntimeSettings } from '../../src/conversation/conversationSession';
-import { runtimeSettingsSummary } from '../../src/webview/threads/runtimeSettings';
+import {
+  conversationPermissionOptions,
+  runtimeSettingsSummary,
+  standardSpeedLabel
+} from '../../src/webview/threads/runtimeSettings';
 
 function runtime(overrides: Partial<ConversationRuntimeSettings> = {}): ConversationRuntimeSettings {
   return {
@@ -21,6 +25,15 @@ function runtime(overrides: Partial<ConversationRuntimeSettings> = {}): Conversa
     ...overrides
   };
 }
+
+test('matches the new-conversation permission and speed wording from extension settings', () => {
+  assert.deepEqual(conversationPermissionOptions, [
+    { value: 'ask', label: 'Ask', description: 'Ask you to approve eligible operations.' },
+    { value: 'auto', label: 'Auto', description: 'Let an independent reviewer approve eligible operations for you.' },
+    { value: 'full', label: 'Full', description: 'Run without sandbox restrictions or approval prompts.' }
+  ]);
+  assert.equal(standardSpeedLabel, 'Standard');
+});
 
 test('summarizes the compact model and effective effort without default or workspace labels', () => {
   assert.equal(

@@ -22,7 +22,12 @@ import {
   type ThreadsHostToWebviewMessage,
   type ThreadsWebviewState
 } from './protocol';
-import { defaultRuntimeLabel, runtimeSettingsSummary } from './runtimeSettings';
+import {
+  conversationPermissionOptions,
+  defaultRuntimeLabel,
+  runtimeSettingsSummary,
+  standardSpeedLabel
+} from './runtimeSettings';
 
 interface VsCodeApi<T> {
   postMessage(message: unknown): void;
@@ -1252,14 +1257,10 @@ function renderRuntimeSettings(target: ConversationComposerTarget): void {
     runtime?.serviceTiers ?? [],
     runtime?.serviceTier,
     true,
-    defaultRuntimeLabel('Default speed', runtime?.defaultServiceTier, runtime?.serviceTiers ?? [])
+    defaultRuntimeLabel(standardSpeedLabel, runtime?.defaultServiceTier, runtime?.serviceTiers ?? [])
   );
   const permissionPreset = runtimePermissionPreset(runtime);
-  const permissionOptions = [
-    { value: 'ask', label: 'Ask for approval', description: 'Ask you before crossing the workspace boundary' },
-    { value: 'auto', label: 'Approve for me', description: 'Let an independent reviewer decide eligible requests' },
-    { value: 'full', label: 'Full access', description: 'Run without sandbox restrictions or approval prompts' }
-  ];
+  const permissionOptions = [...conversationPermissionOptions];
   if (permissionPreset === 'custom') {
     permissionOptions.unshift({ value: 'custom', label: 'Custom (current)', description: 'Keep the current detailed permission settings' });
   }
